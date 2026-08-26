@@ -16,6 +16,22 @@ _LOGGER = logging.getLogger(__name__)
 SERVICE_TYPE = "_bose-router._tcp.local."
 
 
+def _detect_lan_ip() -> str:
+    """Return the actual outbound-routable LAN IP, not a container-internal one.
+
+    socket.gethostbyname(socket.gethostname()) is unreliable in containers —
+    even with host_network: true it resolved to Supervisor's internal
+    172.30.32.1 bridge address here instead of the real 192.168.x.x LAN IP,
+    confirmed live. Opening a UDP "connection" (no packets actually sent for
+    UDP) and reading back the OS-assigned local address is the standard,
+    reliable way to find the interface that would actually be used to reach
+    the rest of the LAN.
+    """
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as probe:
+        probe.connect(("8.8.8.8", 80))
+        return probe.getsockname()[0]
+
+
 class ZeroconfAdvertiser:
     def __init__(self, *, server_id: str, server_version: str, port: int) -> None:
         self._server_id = server_id
@@ -26,7 +42,7 @@ class ZeroconfAdvertiser:
 
     async def async_start(self) -> None:
         self._aiozc = AsyncZeroconf()
-        local_ip = socket.gethostbyname(socket.gethostname())
+        local_ip = _detect_lan_ip()
         self._service_info = ServiceInfo(
             SERVICE_TYPE,
             name=f"{self._server_id}.{SERVICE_TYPE}",

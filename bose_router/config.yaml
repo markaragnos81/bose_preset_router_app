@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.9.2"
+version: "0.9.3"
 slug: bose_router
 description: >-
   Phase 7: preset maintenance lives in the App's own Configuration tab, not
@@ -23,6 +23,7 @@ options:
   ws_port: 8765
   presets: []
   device_preset_overrides: []
+  log_level: info
 schema:
   devices:
     - name: "str"
@@ -30,6 +31,7 @@ schema:
       enabled: "bool?"
   ws_port: "port"
   acoustid_api_key: "password?"
+  log_level: "list(debug|info|warning|error)"
   presets:
     - id: "int"
       url: "str"

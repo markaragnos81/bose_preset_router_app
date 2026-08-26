@@ -120,7 +120,7 @@ class AirPlayDiscovery:
             loop, timeout=DEFAULT_SCAN_TIMEOUT_SECONDS, protocol={Protocol.RAOP}, aiozc=self._aiozc
         )
         elapsed = time.monotonic() - start
-        _LOGGER.info(
+        _LOGGER.debug(
             "AirPlay scan finished in %.2fs, found %d device(s): %s",
             elapsed, len(results), [str(c.address) for c in results],
         )

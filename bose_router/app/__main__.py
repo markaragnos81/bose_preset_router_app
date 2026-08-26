@@ -21,17 +21,7 @@ from station_meta import async_resolve_station_meta
 from stream_metadata import StreamMetadataTracker
 from zeroconf_advertise import ZeroconfAdvertiser
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
-_LOGGER = logging.getLogger(__name__)
-
-APP_VERSION = "0.9.2"
-
-
-async def _noop_update_callback(meta: dict) -> None:
-    """StreamMetadataTracker refreshes current_meta internally either way;
-    clients poll it on demand via the "stream_meta" command rather than this
-    app pushing updates — no server-push/event protocol yet.
-    """
+APP_VERSION = "0.9.3"
 OPTIONS_PATH = Path("/data/options.json")
 
 
@@ -52,7 +42,25 @@ def _load_options() -> dict:
         "acoustid_api_key": os.environ.get("ACOUSTID_API_KEY", ""),
         "presets": [],
         "device_preset_overrides": [],
+        "log_level": os.environ.get("LOG_LEVEL", "info"),
     }
+
+
+_options_for_logging = _load_options()
+_LOG_LEVEL = getattr(logging, str(_options_for_logging.get("log_level") or "info").upper(), logging.INFO)
+logging.basicConfig(level=_LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+# "connection open"/"connection closed" fire on every HA client poll cycle
+# (every ~10-15s) - pure transport noise, not app diagnostics, so keep it
+# quiet even when the app's own log_level is set to debug.
+logging.getLogger("websockets").setLevel(max(_LOG_LEVEL, logging.WARNING))
+_LOGGER = logging.getLogger(__name__)
+
+
+async def _noop_update_callback(meta: dict) -> None:
+    """StreamMetadataTracker refreshes current_meta internally either way;
+    clients poll it on demand via the "stream_meta" command rather than this
+    app pushing updates — no server-push/event protocol yet.
+    """
 
 
 def _resolve_device_presets(

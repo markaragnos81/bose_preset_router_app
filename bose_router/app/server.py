@@ -74,14 +74,17 @@ class BoseRouterServer:
         return client
 
     async def _handle_connection(self, websocket: WebSocketServerProtocol) -> None:
-        _LOGGER.info("Client connected: %s", websocket.remote_address)
+        # DEBUG, not INFO: the HA client opens/closes a connection on every
+        # poll cycle (every ~10-15s), so this fires constantly during normal
+        # operation - not something worth surfacing at the default log level.
+        _LOGGER.debug("Client connected: %s", websocket.remote_address)
         try:
             async for raw_message in websocket:
                 await self._handle_message(websocket, raw_message)
         except websockets.ConnectionClosed:
             pass
         finally:
-            _LOGGER.info("Client disconnected: %s", websocket.remote_address)
+            _LOGGER.debug("Client disconnected: %s", websocket.remote_address)
 
     async def _handle_message(self, websocket: WebSocketServerProtocol, raw_message: str) -> None:
         try:

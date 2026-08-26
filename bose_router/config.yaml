@@ -1,11 +1,13 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.1.1"
+version: "0.2.0"
 slug: bose_router
 description: >-
-  Phase 1 proof-of-concept: standalone Bose SoundTouch status server,
-  discoverable via Zeroconf, queried over WebSocket. Runs outside Home
-  Assistant's own process so it can (in later phases) use native
+  Phase 2: multi-device Bose SoundTouch status/control server, discoverable
+  via Zeroconf, controlled over WebSocket. Full read (info/volume/now_playing
+  /presets/sources/zone) and control (play/pause/volume/presets/source
+  select/zone) surface ported from bose_preset_router's api.py. Runs outside
+  Home Assistant's own process so it can (in later phases) use native
   dependencies HA custom components cannot install, such as libchromaprint
   for AcoustID audio fingerprinting.
 url: "https://github.com/markaragnos81/bose_preset_router_app/tree/main/bose_router"
@@ -15,10 +17,12 @@ arch:
 init: false
 host_network: true
 options:
-  bose_ip: ""
+  devices: []
   ws_port: 8765
 schema:
-  bose_ip: "str"
+  devices:
+    - name: "str"
+      ip: "str"
   ws_port: "port"
 # No `image:` field for now — Supervisor builds locally from the Dockerfile
 # below instead of pulling a pre-built registry image. Re-add this (and set

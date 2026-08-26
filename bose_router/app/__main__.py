@@ -20,32 +20,47 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.1.0"
+APP_VERSION = "0.2.0"
 OPTIONS_PATH = Path("/data/options.json")
 
 
 def _load_options() -> dict:
     if OPTIONS_PATH.exists():
         return json.loads(OPTIONS_PATH.read_text())
+    # Local (non-Supervisor) testing: BOSE_DEVICES="Büro:192.168.20.139,Wohnzimmer:192.168.20.20"
+    devices = []
+    for entry in os.environ.get("BOSE_DEVICES", "").split(","):
+        entry = entry.strip()
+        if not entry:
+            continue
+        name, _, ip = entry.partition(":")
+        devices.append({"name": name.strip(), "ip": ip.strip()})
     return {
-        "bose_ip": os.environ.get("BOSE_IP", ""),
+        "devices": devices,
         "ws_port": int(os.environ.get("WS_PORT", "8765")),
     }
 
 
 async def async_main() -> None:
     options = _load_options()
-    bose_ip = str(options.get("bose_ip") or "").strip()
+    devices = options.get("devices") or []
     ws_port = int(options.get("ws_port") or 8765)
 
-    if not bose_ip:
-        raise SystemExit("bose_ip option is required for Phase 1 (single device)")
+    if not devices:
+        raise SystemExit("At least one device is required (options.devices: [{name, ip}, ...])")
 
-    server_id = f"bose-router-{uuid.uuid5(uuid.NAMESPACE_DNS, bose_ip).hex[:8]}"
+    server_id_seed = ",".join(sorted(d["ip"] for d in devices))
+    server_id = f"bose-router-{uuid.uuid5(uuid.NAMESPACE_DNS, server_id_seed).hex[:8]}"
 
     async with aiohttp.ClientSession() as session:
-        bose_client = BoseSoundTouchClient(session, host=bose_ip)
-        server = BoseRouterServer(bose_client=bose_client)
+        clients = {
+            device["ip"]: BoseSoundTouchClient(session, host=device["ip"], device_name=device.get("name", ""))
+            for device in devices
+        }
+        for ip, client in clients.items():
+            _LOGGER.info("Configured device: %s (%s)", client.device_name or "?", ip)
+
+        server = BoseRouterServer(clients=clients)
         advertiser = ZeroconfAdvertiser(server_id=server_id, server_version=APP_VERSION, port=ws_port)
 
         await advertiser.async_start()

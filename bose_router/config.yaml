@@ -1,16 +1,18 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.5.3"
+version: "0.6.0"
 slug: bose_router
 description: >-
-  Phase 5: adds AcoustID/Chromaprint audio fingerprinting (via the native
-  libchromaprint library, installable here specifically because this runs
-  outside Home Assistant's own process — the original reason for the whole
-  App rewrite) so streams that send no real ICY song data (e.g. RadioBob,
-  Radio21) can still be identified. Also carries Phase 2-4: full Bose
-  read/control surface, AirPlay/RAOP streaming (pyatv) with no thread-
-  isolation workaround, and ICY/Radio-Browser/iTunes metadata enrichment.
-  Discoverable via Zeroconf, controlled over WebSocket.
+  Phase 5: ICY metadata reads now listen for several seconds instead of a
+  single snapshot, since a one-shot read frequently lands on a jingle/ident
+  rather than the current song (confirmed live against RadioBob, which does
+  send real "Artist - Title" data). AcoustID/Chromaprint audio fingerprinting
+  (native libchromaprint, installable here specifically because this runs
+  outside Home Assistant's own process) is wired in as a cooldown-gated
+  fallback for the rarer stations that never embed song data at all. Also
+  carries Phase 2-4: full Bose read/control surface, AirPlay/RAOP streaming
+  (pyatv) with no thread-isolation workaround, and ICY/Radio-Browser/iTunes
+  metadata enrichment. Discoverable via Zeroconf, controlled over WebSocket.
 url: "https://github.com/markaragnos81/bose_preset_router_app/tree/main/bose_router"
 arch:
   - aarch64

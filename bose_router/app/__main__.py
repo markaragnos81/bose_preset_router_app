@@ -13,6 +13,7 @@ from pathlib import Path
 
 import aiohttp
 
+from acoustid_lookup import async_identify_track
 from airplay import AirPlayDiscovery, AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
 from server import BoseRouterServer
@@ -23,7 +24,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.5.3"
+APP_VERSION = "0.6.0"
 
 
 async def _noop_update_callback(meta: dict) -> None:
@@ -82,9 +83,17 @@ async def async_main() -> None:
         async def _resolve(url: str) -> dict:
             return await async_resolve_station_meta(session, url)
 
+        async def _acoustid_identify(url: str) -> dict:
+            return await async_identify_track(session, url, acoustid_api_key)
+
+        acoustid_fallback = _acoustid_identify if acoustid_api_key else None
+
         stream_meta_trackers = {
             device["ip"]: StreamMetadataTracker(
-                session, station_meta_resolver=_resolve, update_callback=_noop_update_callback
+                session,
+                station_meta_resolver=_resolve,
+                update_callback=_noop_update_callback,
+                acoustid_resolver=acoustid_fallback,
             )
             for device in devices
         }

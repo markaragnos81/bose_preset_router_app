@@ -19,6 +19,12 @@ from radio_browser import async_fetch_icy_meta, async_lookup_track_art, parse_ic
 _LOGGER = logging.getLogger(__name__)
 
 _TRACKER_INTERVAL_SECONDS = 15
+# AcoustID fingerprinting is only tried when ICY genuinely has no real title
+# (see async_fetch_icy_meta's multi-second listen — most stations that ever
+# send song titles will be caught by that already). It's a last resort for
+# stations that never embed song data at all, so it's cooldown-gated to keep
+# free-tier API usage low rather than retried every _TRACKER_INTERVAL_SECONDS.
+_ACOUSTID_FALLBACK_COOLDOWN_SECONDS = 180
 _GENERIC_BRANDING_TOKENS = {
     "radio", "fm", "am", "dab", "stream", "streams", "live", "livestream",
     "music", "channel", "station", "hits", "rock", "pop", "dance", "mix",
@@ -35,13 +41,16 @@ class StreamMetadataTracker:
         *,
         station_meta_resolver: Callable[[str], Awaitable[dict[str, str]]],
         update_callback: Callable[[dict[str, Any]], Awaitable[None]],
+        acoustid_resolver: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
     ) -> None:
         self._session = session
         self._station_meta_resolver = station_meta_resolver
         self._update_callback = update_callback
+        self._acoustid_resolver = acoustid_resolver
         self._stream_url = ""
         self._current_meta: dict[str, Any] = {}
         self._task: asyncio.Task | None = None
+        self._last_acoustid_attempt: float = 0.0
 
     @property
     def current_meta(self) -> dict[str, Any]:
@@ -120,6 +129,21 @@ class StreamMetadataTracker:
             is_branding = not is_real_track
             if is_real_track:
                 track_artist, track_title = parsed_artist, parsed_title
+
+        if is_branding and self._acoustid_resolver is not None:
+            loop = asyncio.get_running_loop()
+            if loop.time() - self._last_acoustid_attempt >= _ACOUSTID_FALLBACK_COOLDOWN_SECONDS:
+                self._last_acoustid_attempt = loop.time()
+                try:
+                    match = await self._acoustid_resolver(url)
+                except Exception as err:
+                    _LOGGER.debug("AcoustID fallback failed for %s: %s", url, err)
+                    match = {}
+                if match:
+                    track_artist = str(match.get("artist") or "")
+                    track_title = str(match.get("title") or "")
+                    is_branding = False
+                    decision_reason = "acoustid_fingerprint_match"
 
         track_image = ""
         if track_title:

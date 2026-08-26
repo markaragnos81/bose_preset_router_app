@@ -5,6 +5,7 @@ stations. Ported from bose_preset_router's radio_browser.py, with
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import struct
@@ -178,8 +179,20 @@ async def async_lookup_radio_logo(session: aiohttp.ClientSession, name: str, url
 # ICY stream metadata (current track / artist)
 # ---------------------------------------------------------------------------
 
+_ICY_LISTEN_SECONDS = 6.0
+
+
 async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict[str, str]:
     """Fetch live ICY metadata from an internet radio stream.
+
+    ICY only sends a metadata block when the title *changes* — a single
+    snapshot read right after connecting reflects whatever happens to be
+    live at that instant, which is frequently a jingle/ident/ad rather than
+    the song itself (confirmed live against RadioBob: repeated single-shot
+    reads consistently landed on station-branding text, while listening for
+    a few seconds caught a real "Artist - Title" transition). So this reads
+    metadata blocks for up to _ICY_LISTEN_SECONDS and keeps the most recent
+    non-empty title seen, rather than trusting only the very first block.
 
     Returns {"stream_title": str, "icy_name": str}. Returns {} on any error.
     """
@@ -191,7 +204,7 @@ async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict
         async with session.get(
             url,
             headers={"Icy-MetaData": "1", "User-Agent": "bose_router_app/homeassistant"},
-            timeout=aiohttp.ClientTimeout(total=5, connect=3),
+            timeout=aiohttp.ClientTimeout(total=_ICY_LISTEN_SECONDS + 5, connect=3),
         ) as resp:
             if resp.status not in (200, 206):
                 return {}
@@ -203,12 +216,15 @@ async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict
             if not metaint:
                 return {"stream_title": "", "icy_name": icy_name}
 
-            await resp.content.readexactly(metaint)
-            length_byte = await resp.content.readexactly(1)
-            meta_len = struct.unpack("B", length_byte)[0] * 16
-
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + _ICY_LISTEN_SECONDS
             stream_title = ""
-            if meta_len:
+            while loop.time() < deadline:
+                await resp.content.readexactly(metaint)
+                length_byte = await resp.content.readexactly(1)
+                meta_len = struct.unpack("B", length_byte)[0] * 16
+                if not meta_len:
+                    continue
                 meta_bytes = await resp.content.readexactly(meta_len)
                 try:
                     raw = meta_bytes.decode("utf-8").rstrip("\x00")

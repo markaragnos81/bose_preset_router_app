@@ -23,7 +23,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.4.0"
+APP_VERSION = "0.5.0"
 
 
 async def _noop_update_callback(meta: dict) -> None:
@@ -48,6 +48,7 @@ def _load_options() -> dict:
     return {
         "devices": devices,
         "ws_port": int(os.environ.get("WS_PORT", "8765")),
+        "acoustid_api_key": os.environ.get("ACOUSTID_API_KEY", ""),
     }
 
 
@@ -55,6 +56,7 @@ async def async_main() -> None:
     options = _load_options()
     devices = options.get("devices") or []
     ws_port = int(options.get("ws_port") or 8765)
+    acoustid_api_key = str(options.get("acoustid_api_key") or "")
 
     if not devices:
         raise SystemExit("At least one device is required (options.devices: [{name, ip}, ...])")
@@ -94,6 +96,8 @@ async def async_main() -> None:
             airplay_players=airplay_players,
             resume_store=resume_store,
             stream_meta_trackers=stream_meta_trackers,
+            session=session,
+            acoustid_api_key=acoustid_api_key,
         )
         advertiser = ZeroconfAdvertiser(server_id=server_id, server_version=APP_VERSION, port=ws_port)
 

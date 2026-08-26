@@ -15,9 +15,11 @@ import asyncio
 import json
 import logging
 
+import aiohttp
 import websockets
 from websockets.server import WebSocketServerProtocol
 
+from acoustid_lookup import async_identify_track, chromaprint_available
 from airplay import AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
 from stream_metadata import StreamMetadataTracker
@@ -55,11 +57,15 @@ class BoseRouterServer:
         airplay_players: dict[str, AirPlayPlayer] | None = None,
         resume_store: AirPlayResumeStore | None = None,
         stream_meta_trackers: dict[str, StreamMetadataTracker] | None = None,
+        session: aiohttp.ClientSession | None = None,
+        acoustid_api_key: str = "",
     ) -> None:
         self._clients = clients
         self._airplay_players = airplay_players or {}
         self._resume_store = resume_store
         self._stream_meta_trackers = stream_meta_trackers or {}
+        self._session = session
+        self._acoustid_api_key = acoustid_api_key
 
     def _get_client(self, device_ip: str) -> BoseSoundTouchClient:
         client = self._clients.get(device_ip)
@@ -111,6 +117,18 @@ class BoseRouterServer:
         if command == "stream_meta":
             tracker = self._stream_meta_trackers.get(device_ip)
             return tracker.current_meta if tracker is not None else {}
+
+        if command == "acoustid_status":
+            return chromaprint_available()
+
+        if command == "identify_track":
+            tracker = self._stream_meta_trackers.get(device_ip)
+            stream_url = tracker.current_meta.get("stream_url") if tracker is not None else ""
+            if not stream_url:
+                raise ValueError("no_active_stream")
+            if self._session is None:
+                raise RuntimeError("no_http_session_configured")
+            return await async_identify_track(self._session, stream_url, self._acoustid_api_key)
 
         if command in _READ_COMMANDS:
             return await getattr(client, _READ_COMMANDS[command])()

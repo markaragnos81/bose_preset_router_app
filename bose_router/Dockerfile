@@ -12,6 +12,17 @@ RUN apk add --no-cache \
     python3 py3-pip \
     gcc musl-dev libffi-dev openssl-dev cargo rust
 
+# Phase 5 adds AcoustID/Chromaprint audio fingerprinting — the feature that
+# originally motivated moving off the HA custom-component architecture
+# (chromaprint is a native library; a custom component has no way to install
+# system packages at all). chromaprint-libs provides libchromaprint.so.1,
+# which pyacoustid's ctypes binding (chromaprint.py) looks for by name;
+# chromaprint also ships the fpcalc CLI as a fallback path pyacoustid uses
+# if the ctypes binding isn't available; ffmpeg is audioread's decode
+# backend for turning the downloaded stream snippet into raw PCM.
+RUN apk add --no-cache \
+    chromaprint chromaprint-libs ffmpeg
+
 COPY app /app
 COPY rootfs /
 
@@ -19,7 +30,8 @@ RUN pip install --no-cache-dir --break-system-packages \
     aiohttp==3.10.* \
     websockets==13.* \
     zeroconf==0.146.* \
-    pyatv==0.18.*
+    pyatv==0.18.* \
+    pyacoustid==1.3.*
 
 WORKDIR /app
 

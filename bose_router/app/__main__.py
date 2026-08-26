@@ -24,7 +24,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.7.2"
+APP_VERSION = "0.8.0"
 
 
 async def _noop_update_callback(meta: dict) -> None:

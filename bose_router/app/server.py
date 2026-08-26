@@ -167,7 +167,7 @@ class BoseRouterServer:
             await client.async_set_muted(bool(args["muted"]))
             return None
         if command == "select_preset":
-            await client.async_select_preset(int(args["preset_id"]))
+            await self._dispatch_select_preset(client, int(args["preset_id"]))
             return None
         if command == "store_preset":
             await client.async_store_preset(int(args["preset_id"]), str(args["url"]), str(args.get("name", "")))
@@ -188,6 +188,28 @@ class BoseRouterServer:
             return await self._dispatch_zone(command, args)
 
         raise ValueError(f"unknown_command: {command}")
+
+    async def _dispatch_select_preset(self, client: BoseSoundTouchClient, preset_id: int) -> None:
+        """Select a preset via UPnP AVTransport, not the native PRESET key.
+
+        The native key only *selects* a stored UPNP-source preset - it can
+        wedge the renderer on some SoundTouch units (accepts the command
+        but never actually streams audio; confirmed live, only a physical
+        power cycle recovers it). Mirrors production bose_preset_router's
+        direct-routing path: resolve the preset's own URL/name and drive
+        AVTransport directly instead.
+        """
+        presets = await client.async_get_presets()
+        preset = next((p for p in presets if int(p.get("id", 0)) == preset_id), None)
+        if preset is None or not preset.get("location"):
+            raise ValueError(f"preset_not_found_or_no_url: {preset_id}")
+
+        now_playing = await client.async_get_now_playing()
+        if str(now_playing.get("source", "")).upper() in ("STANDBY", ""):
+            await client.async_power_on()
+            await asyncio.sleep(1.5)
+
+        await client.async_play_upnp_stream(preset["location"], station_name=preset.get("item_name", ""))
 
     async def _dispatch_zone(self, command: str, args: dict) -> None:
         """Zone commands take IPs ("master_ip", "member_ips") and resolve each

@@ -2,9 +2,7 @@
 
 Ported from bose_preset_router's api.py (BoseSoundTouchApi), stripped of its
 Home Assistant dependency (async_get_clientsession(hass) -> a plain
-aiohttp.ClientSession this app owns and manages itself). UPnP AVTransport
-streaming (async_play_upnp_stream/_build_didl) is intentionally left out —
-that belongs to the later AirPlay/streaming phase, not device polling/control.
+aiohttp.ClientSession this app owns and manages itself).
 """
 from __future__ import annotations
 
@@ -215,6 +213,84 @@ class BoseSoundTouchClient:
         if preset_id < 1 or preset_id > 6:
             raise ValueError(f"Preset id must be between 1 and 6, got {preset_id}")
         await self.async_send_key(f"PRESET_{preset_id}")
+
+    async def _async_soap(self, path: str, service: str, action: str, body_inner: str) -> None:
+        url = f"http://{self.host}:8091/{path.lstrip('/')}"
+        soap = (
+            '<?xml version="1.0"?>'
+            '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/" '
+            's:encodingStyle="http://schemas.xmlsoap.org/soap/encoding/">'
+            "<s:Body>"
+            f'<u:{action} xmlns:u="{service}">'
+            f"{body_inner}"
+            f"</u:{action}>"
+            "</s:Body>"
+            "</s:Envelope>"
+        )
+        async with self._session.post(
+            url,
+            data=soap.encode("utf-8"),
+            timeout=aiohttp.ClientTimeout(total=5),
+            headers={
+                "Content-Type": 'text/xml; charset="utf-8"',
+                "SOAPAction": f'"{service}#{action}"',
+            },
+        ) as response:
+            response.raise_for_status()
+
+    @staticmethod
+    def _build_didl(url: str, name: str, favicon: str = "") -> str:
+        """Build DIDL-Lite XML for UPnP SetAVTransportURI CurrentURIMetaData."""
+        def esc(s: str) -> str:
+            return escape(str(s or ""))
+
+        mime = "audio/mpeg"
+        ext = url.split("?")[0].rsplit(".", 1)[-1].lower()
+        mime_map = {"m4a": "audio/aac", "aac": "audio/aac", "flac": "audio/flac",
+                    "ogg": "audio/ogg", "oga": "audio/ogg", "wav": "audio/wav"}
+        if ext in mime_map:
+            mime = mime_map[ext]
+
+        art = f"<upnp:albumArtURI>{esc(favicon)}</upnp:albumArtURI>"
+        return (
+            '<DIDL-Lite xmlns="urn:schemas-upnp-org:metadata-1-0/DIDL-Lite/" '
+            'xmlns:dc="http://purl.org/dc/elements/1.1/" '
+            'xmlns:upnp="urn:schemas-upnp-org:metadata-1-0/upnp/">'
+            '<item id="0" parentID="-1" restricted="1">'
+            f"<dc:title>{esc(name)}</dc:title>"
+            "<upnp:class>object.item.audioItem.audioBroadcast</upnp:class>"
+            f"{art}"
+            f'<res protocolInfo="http-get:*:{mime}:*">{esc(url)}</res>'
+            "</item>"
+            "</DIDL-Lite>"
+        )
+
+    async def async_play_upnp_stream(
+        self, stream_url: str, station_name: str = "", station_favicon: str = ""
+    ) -> None:
+        """Start playback via pure UPnP AVTransport (SetAVTransportURI+Play).
+
+        Deliberately does NOT send the native PRESET key first: on some
+        SoundTouch units that wedges the renderer for a UPNP-source
+        ContentItem (accepts commands with HTTP 200 but never streams audio
+        - confirmed live, recovers only via a physical power cycle). This
+        mirrors production bose_preset_router's direct-routing path, the
+        fix that was already worked out for this exact failure mode.
+        """
+        svc = "urn:schemas-upnp-org:service:AVTransport:1"
+        path = "AVTransport/Control"
+        http_url = self._to_http(stream_url)
+        didl = self._build_didl(http_url, station_name or "Stream", station_favicon)
+        await self._async_soap(path, svc, "Stop", "<InstanceID>0</InstanceID>")
+        await self._async_soap(
+            path,
+            svc,
+            "SetAVTransportURI",
+            f"<InstanceID>0</InstanceID>"
+            f"<CurrentURI>{escape(http_url)}</CurrentURI>"
+            f"<CurrentURIMetaData>{escape(didl)}</CurrentURIMetaData>",
+        )
+        await self._async_soap(path, svc, "Play", "<InstanceID>0</InstanceID><Speed>1</Speed>")
 
     @staticmethod
     def _to_http(url: str) -> str:

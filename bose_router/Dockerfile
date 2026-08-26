@@ -1,4 +1,4 @@
-ARG BUILD_FROM
+ARG BUILD_FROM=ghcr.io/home-assistant/base:3.23
 FROM $BUILD_FROM
 
 # Phase 1: pure-Python deps only. Later phases add system packages here

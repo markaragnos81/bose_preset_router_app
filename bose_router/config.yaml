@@ -20,4 +20,6 @@ options:
 schema:
   bose_ip: "str"
   ws_port: "port"
-image: "ghcr.io/markaragnos81/bose_router-{arch}"
+# No `image:` field for now — Supervisor builds locally from the Dockerfile
+# below instead of pulling a pre-built registry image. Re-add this (and set
+# up a CI build) once the app is ready to be distributed as a prebuilt image.

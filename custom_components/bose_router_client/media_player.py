@@ -66,11 +66,16 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         self._client = client
         self._siblings: dict[str, BoseRouterMediaPlayer] = {}
         info = (coordinator.data or {}).get("info", {})
+        device_name = info.get("name") or coordinator.device_ip
         self._attr_unique_id = f"bose_router_client_{coordinator.device_ip}"
-        self._attr_name = info.get("name") or coordinator.device_ip
+        # Leave _attr_name at its class-level None: this is the device's one
+        # and only entity, so has_entity_name=True should show the device's
+        # own name alone. Setting an entity-level name here too would make HA
+        # concatenate "<device_name> <entity_name>" (seen live: "SoundTouch
+        # Büro SoundTouch Büro").
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, coordinator.device_ip)},
-            name=self._attr_name,
+            name=device_name,
             manufacturer="Bose",
             model=info.get("type") or None,
             configuration_url=f"http://{coordinator.device_ip}:8090/info",

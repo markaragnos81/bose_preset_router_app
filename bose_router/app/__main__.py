@@ -24,7 +24,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.8.5"
+APP_VERSION = "0.9.0"
 
 
 async def _noop_update_callback(meta: dict) -> None:
@@ -50,7 +50,56 @@ def _load_options() -> dict:
         "devices": devices,
         "ws_port": int(os.environ.get("WS_PORT", "8765")),
         "acoustid_api_key": os.environ.get("ACOUSTID_API_KEY", ""),
+        "presets": [],
+        "device_preset_overrides": [],
     }
+
+
+def _resolve_device_presets(
+    device_ip: str, global_presets: list[dict], overrides: list[dict]
+) -> dict[int, tuple[str, str]]:
+    """Merge global default presets with any per-device overrides for this IP.
+
+    Config lives in the App's own Supervisor Configuration tab (like
+    acoustid_api_key already does), not a HA config_flow/service — presets
+    is the global default list, device_preset_overrides replaces individual
+    slots (matched by ip + id) for devices that need something different.
+    """
+    resolved: dict[int, tuple[str, str]] = {}
+    for preset in global_presets:
+        try:
+            preset_id = int(preset["id"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if preset.get("url"):
+            resolved[preset_id] = (str(preset["url"]), str(preset.get("name", "")))
+    for override in overrides:
+        if str(override.get("ip", "")) != device_ip:
+            continue
+        try:
+            preset_id = int(override["id"])
+        except (KeyError, ValueError, TypeError):
+            continue
+        if override.get("url"):
+            resolved[preset_id] = (str(override["url"]), str(override.get("name", "")))
+    return resolved
+
+
+async def _apply_configured_presets(
+    clients: dict[str, BoseSoundTouchClient], global_presets: list[dict], overrides: list[dict]
+) -> None:
+    """Push configured presets to each physical device on every App start —
+    same mechanism production used (Bose's native storePreset endpoint),
+    just driven by App config instead of a HA config_flow.
+    """
+    for device_ip, client in clients.items():
+        resolved = _resolve_device_presets(device_ip, global_presets, overrides)
+        for preset_id, (url, name) in resolved.items():
+            try:
+                await client.async_store_preset(preset_id, url, name or f"Preset {preset_id}")
+                _LOGGER.info("Applied preset %d on %s: %r (%s)", preset_id, device_ip, name, url)
+            except Exception as err:
+                _LOGGER.warning("Could not apply preset %d on %s: %s", preset_id, device_ip, err)
 
 
 async def async_main() -> None:
@@ -58,6 +107,8 @@ async def async_main() -> None:
     devices = options.get("devices") or []
     ws_port = int(options.get("ws_port") or 8765)
     acoustid_api_key = str(options.get("acoustid_api_key") or "")
+    global_presets = options.get("presets") or []
+    device_preset_overrides = options.get("device_preset_overrides") or []
 
     if not devices:
         raise SystemExit("At least one device is required (options.devices: [{name, ip}, ...])")
@@ -111,6 +162,11 @@ async def async_main() -> None:
         advertiser = ZeroconfAdvertiser(server_id=server_id, server_version=APP_VERSION, port=ws_port)
 
         await advertiser.async_start()
+        if global_presets or device_preset_overrides:
+            asyncio.create_task(
+                _apply_configured_presets(clients, global_presets, device_preset_overrides),
+                name="apply_presets",
+            )
         asyncio.create_task(server.async_resume_airplay_devices(), name="airplay_resume")
         try:
             await server.serve_forever(port=ws_port)

@@ -1,16 +1,16 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.8.5"
+version: "0.9.0"
 slug: bose_router
 description: >-
-  Phase 6: zone (multi-room group) management — set_zone/add_zone_slaves/
-  remove_zone_slaves over WebSocket, and native HA speaker-grouping support
-  (join/unjoin) in the thin client, resolving Bose deviceIDs from IPs
-  internally so callers only ever deal in IPs/entity_ids. Also carries
-  Phase 5 (ICY multi-second listen instead of a single snapshot read, plus
-  a cooldown-gated AcoustID fingerprinting fallback) and Phase 2-4: full
-  Bose read/control surface, AirPlay/RAOP streaming (pyatv) with no thread-
-  isolation workaround, and ICY/Radio-Browser/iTunes metadata enrichment.
+  Phase 7: preset maintenance lives in the App's own Configuration tab, not
+  the HA client — global default presets (id/url/name) applied to every
+  device, with optional per-device overrides (matched by IP) for presets
+  that should differ on one speaker. Pushed to each physical device via
+  Bose's native storePreset endpoint on every App start. Also carries zone
+  (multi-room group) management, ICY multi-second listen, a cooldown-gated
+  AcoustID fingerprinting fallback, and the full Bose read/control surface
+  with AirPlay/RAOP streaming (pyatv) and no thread-isolation workaround.
   Discoverable via Zeroconf, controlled over WebSocket.
 url: "https://github.com/markaragnos81/bose_preset_router_app/tree/main/bose_router"
 arch:
@@ -21,12 +21,23 @@ host_network: true
 options:
   devices: []
   ws_port: 8765
+  presets: []
+  device_preset_overrides: []
 schema:
   devices:
     - name: "str"
       ip: "str"
   ws_port: "port"
   acoustid_api_key: "password?"
+  presets:
+    - id: "int"
+      url: "str"
+      name: "str"
+  device_preset_overrides:
+    - ip: "str"
+      id: "int"
+      url: "str"
+      name: "str"
 # No `image:` field for now — Supervisor builds locally from the Dockerfile
 # below instead of pulling a pre-built registry image. Re-add this (and set
 # up a CI build) once the app is ready to be distributed as a prebuilt image.

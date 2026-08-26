@@ -57,23 +57,27 @@ class StreamMetadataTracker:
         return dict(self._current_meta)
 
     async def async_set_stream(self, url: str) -> dict[str, Any]:
+        """Start tracking `url`. Returns immediately without waiting for the
+        first metadata build to complete (that involves up to
+        _ICY_LISTEN_SECONDS of ICY listening) - callers that need "did
+        playback start" (e.g. play_stream) would otherwise block on
+        metadata resolution for something unrelated to whether the stream
+        started. current_meta fills in a few seconds later via the
+        background task; poll it separately (stream_meta/snapshot).
+        """
         url = str(url or "").strip()
         if not url:
             await self.async_clear()
             return {}
 
-        if url != self._stream_url:
-            await self._async_stop_task()
-            self._stream_url = url
-            self._current_meta = {}
+        if url == self._stream_url and self._task is not None and not self._task.done():
+            return dict(self._current_meta)
 
-        meta = await self._async_build_metadata(url)
-        self._current_meta = meta
-
-        if self._task is None or self._task.done():
-            self._task = asyncio.create_task(self._async_run(), name=f"stream_meta_{url}")
-
-        return dict(meta)
+        await self._async_stop_task()
+        self._stream_url = url
+        self._current_meta = {}
+        self._task = asyncio.create_task(self._async_run(), name=f"stream_meta_{url}")
+        return {}
 
     async def async_clear(self) -> None:
         self._stream_url = ""
@@ -90,8 +94,14 @@ class StreamMetadataTracker:
             await task
 
     async def _async_run(self) -> None:
+        # First build runs immediately (no upfront sleep) so current_meta
+        # fills in as soon as possible after async_set_stream returns.
+        first = True
         while self._stream_url:
-            await asyncio.sleep(_TRACKER_INTERVAL_SECONDS)
+            if first:
+                first = False
+            else:
+                await asyncio.sleep(_TRACKER_INTERVAL_SECONDS)
             url = self._stream_url
             if not url:
                 return

@@ -1,0 +1,3 @@
+#!/usr/bin/with-contenv bashio
+cd /app
+exec python3 -u __main__.py

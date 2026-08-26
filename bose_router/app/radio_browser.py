@@ -230,7 +230,10 @@ async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict
                     raw = meta_bytes.decode("utf-8").rstrip("\x00")
                 except UnicodeDecodeError:
                     raw = meta_bytes.decode("latin-1").rstrip("\x00")
-                m = re.search(r"StreamTitle='([^']*)'", raw)
+                # Non-greedy up to the "';" terminator, not "[^']*" — a title
+                # containing its own apostrophe (e.g. "What's Your Name")
+                # would otherwise truncate at that inner apostrophe.
+                m = re.search(r"StreamTitle='(.*?)';", raw)
                 if m:
                     stream_title = m.group(1).strip()
 

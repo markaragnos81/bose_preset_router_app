@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.6.0"
+version: "0.6.1"
 slug: bose_router
 description: >-
   Phase 5: ICY metadata reads now listen for several seconds instead of a

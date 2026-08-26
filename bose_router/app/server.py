@@ -97,6 +97,10 @@ class BoseRouterServer:
             await websocket.send(json.dumps({"success": True, "result": list(self._clients)}))
             return
 
+        if command == "acoustid_status":
+            await websocket.send(json.dumps({"success": True, "result": chromaprint_available()}))
+            return
+
         try:
             client = self._get_client(device_ip)
         except KeyError as err:
@@ -117,9 +121,6 @@ class BoseRouterServer:
         if command == "stream_meta":
             tracker = self._stream_meta_trackers.get(device_ip)
             return tracker.current_meta if tracker is not None else {}
-
-        if command == "acoustid_status":
-            return chromaprint_available()
 
         if command == "identify_track":
             tracker = self._stream_meta_trackers.get(device_ip)

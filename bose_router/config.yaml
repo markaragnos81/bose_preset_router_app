@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.1.0"
+version: "0.1.1"
 slug: bose_router
 description: >-
   Phase 1 proof-of-concept: standalone Bose SoundTouch status server,

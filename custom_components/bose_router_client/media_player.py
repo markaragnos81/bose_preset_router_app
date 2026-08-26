@@ -207,7 +207,10 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         }
 
     async def async_select_source(self, source: str) -> None:
-        match = re.match(r"Preset (\d+):", source)
+        # Matches both the full source_list label ("Preset 5: RADIO BOB...")
+        # and a bare "Preset 5" - dashboard buttons use the latter so they
+        # don't need to hardcode (and re-break on) the current station name.
+        match = re.match(r"Preset (\d+)", source)
         if not match:
             return
         await self._client.async_send(

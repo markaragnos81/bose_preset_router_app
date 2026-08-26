@@ -16,12 +16,21 @@ import aiohttp
 from airplay import AirPlayDiscovery, AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
 from server import BoseRouterServer
+from station_meta import async_resolve_station_meta
+from stream_metadata import StreamMetadataTracker
 from zeroconf_advertise import ZeroconfAdvertiser
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.3.0"
+APP_VERSION = "0.4.0"
+
+
+async def _noop_update_callback(meta: dict) -> None:
+    """StreamMetadataTracker refreshes current_meta internally either way;
+    clients poll it on demand via the "stream_meta" command rather than this
+    app pushing updates — no server-push/event protocol yet.
+    """
 OPTIONS_PATH = Path("/data/options.json")
 
 
@@ -67,6 +76,16 @@ async def async_main() -> None:
         airplay_players = {
             device["ip"]: AirPlayPlayer(device["ip"], airplay_discovery) for device in devices
         }
+
+        async def _resolve(url: str) -> dict:
+            return await async_resolve_station_meta(session, url)
+
+        stream_meta_trackers = {
+            device["ip"]: StreamMetadataTracker(
+                session, station_meta_resolver=_resolve, update_callback=_noop_update_callback
+            )
+            for device in devices
+        }
         for ip, client in clients.items():
             _LOGGER.info("Configured device: %s (%s)", client.device_name or "?", ip)
 
@@ -74,6 +93,7 @@ async def async_main() -> None:
             clients=clients,
             airplay_players=airplay_players,
             resume_store=resume_store,
+            stream_meta_trackers=stream_meta_trackers,
         )
         advertiser = ZeroconfAdvertiser(server_id=server_id, server_version=APP_VERSION, port=ws_port)
 
@@ -84,6 +104,8 @@ async def async_main() -> None:
             await advertiser.async_stop()
             for player in airplay_players.values():
                 await player.stop()
+            for tracker in stream_meta_trackers.values():
+                await tracker.async_clear()
             await airplay_discovery.async_stop()
 
 

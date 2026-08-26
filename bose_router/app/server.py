@@ -20,6 +20,7 @@ from websockets.server import WebSocketServerProtocol
 
 from airplay import AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
+from stream_metadata import StreamMetadataTracker
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,10 +54,12 @@ class BoseRouterServer:
         clients: dict[str, BoseSoundTouchClient],
         airplay_players: dict[str, AirPlayPlayer] | None = None,
         resume_store: AirPlayResumeStore | None = None,
+        stream_meta_trackers: dict[str, StreamMetadataTracker] | None = None,
     ) -> None:
         self._clients = clients
         self._airplay_players = airplay_players or {}
         self._resume_store = resume_store
+        self._stream_meta_trackers = stream_meta_trackers or {}
 
     def _get_client(self, device_ip: str) -> BoseSoundTouchClient:
         client = self._clients.get(device_ip)
@@ -105,6 +108,10 @@ class BoseRouterServer:
         if command in ("play_stream", "stop_stream", "stream_status"):
             return await self._dispatch_airplay(device_ip, command, args)
 
+        if command == "stream_meta":
+            tracker = self._stream_meta_trackers.get(device_ip)
+            return tracker.current_meta if tracker is not None else {}
+
         if command in _READ_COMMANDS:
             return await getattr(client, _READ_COMMANDS[command])()
 
@@ -150,18 +157,26 @@ class BoseRouterServer:
             await player.stop()
             if self._resume_store is not None:
                 await self._resume_store.async_clear(device_ip)
+            tracker = self._stream_meta_trackers.get(device_ip)
+            if tracker is not None:
+                await tracker.async_clear()
             return None
 
         if command == "play_stream":
+            url = str(args["url"])
             started = await player.play(
-                str(args["url"]),
+                url,
                 title=str(args.get("title", "")),
                 artist=str(args.get("artist", "")),
                 album=str(args.get("album", "")),
                 volume_percent=args.get("volume_percent"),
             )
-            if started and self._resume_store is not None and "preset_id" in args:
-                await self._resume_store.async_set(device_ip, int(args["preset_id"]))
+            if started:
+                if self._resume_store is not None and "preset_id" in args:
+                    await self._resume_store.async_set(device_ip, int(args["preset_id"]))
+                tracker = self._stream_meta_trackers.get(device_ip)
+                if tracker is not None:
+                    await tracker.async_set_stream(url)
             return {"started": started}
 
         raise ValueError(f"unknown_command: {command}")

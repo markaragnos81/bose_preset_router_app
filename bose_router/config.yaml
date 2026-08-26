@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.3.0"
+version: "0.4.0"
 slug: bose_router
 description: >-
   Phase 3: adds AirPlay/RAOP streaming (pyatv) on top of Phase 2's full Bose

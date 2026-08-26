@@ -15,6 +15,7 @@ from typing import Any
 from homeassistant.components.media_player import MediaPlayerEntity, MediaPlayerEntityFeature, MediaPlayerState
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -55,6 +56,7 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         | MediaPlayerEntityFeature.SELECT_SOURCE
         | MediaPlayerEntityFeature.TURN_ON
         | MediaPlayerEntityFeature.TURN_OFF
+        | MediaPlayerEntityFeature.VOLUME_MUTE
         | MediaPlayerEntityFeature.GROUPING
     )
     _attr_media_image_remotely_accessible = True
@@ -66,6 +68,13 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         info = (coordinator.data or {}).get("info", {})
         self._attr_unique_id = f"bose_router_client_{coordinator.device_ip}"
         self._attr_name = info.get("name") or coordinator.device_ip
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, coordinator.device_ip)},
+            name=self._attr_name,
+            manufacturer="Bose",
+            model=info.get("type") or None,
+            configuration_url=f"http://{coordinator.device_ip}:8090/info",
+        )
 
     def set_siblings(self, siblings: dict[str, BoseRouterMediaPlayer]) -> None:
         self._siblings = siblings
@@ -143,17 +152,54 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         presets = self._data.get("presets") or []
         return [f"Preset {p['id']}: {p['item_name']}" for p in presets if p.get("item_name")] or None
 
-    @property
-    def source(self) -> str | None:
+    def _matched_preset(self) -> dict[str, Any] | None:
+        """Return the preset dict matching what's currently playing, or None.
+
+        Location match takes priority (works for UPnP/native-preset
+        playback); falls back to a source+item_name match when location is
+        empty (e.g. AirPlay, where Bose doesn't report a location — see
+        v0.7.21's now_playing.location caveat). Doesn't replicate
+        production's AirPlay-session-triggered-preset branch — this app has
+        no equivalent "preset selected via AirPlay routing" state.
+        """
         now_playing = self._data.get("now_playing", {})
         now_location = now_playing.get("location")
         now_item_name = now_playing.get("item_name")
         for preset in self._data.get("presets") or []:
             if now_location and preset.get("location") == now_location:
-                return f"Preset {preset['id']}: {preset['item_name']}"
+                return preset
             if now_item_name and not now_location and preset.get("item_name") == now_item_name:
-                return f"Preset {preset['id']}: {preset['item_name']}"
+                return preset
         return None
+
+    @property
+    def source(self) -> str | None:
+        preset = self._matched_preset()
+        return f"Preset {preset['id']}: {preset['item_name']}" if preset else None
+
+    @property
+    def _active_preset(self) -> int | None:
+        preset = self._matched_preset()
+        return int(preset["id"]) if preset else None
+
+    @property
+    def is_volume_muted(self) -> bool | None:
+        return self._data.get("volume", {}).get("muted")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        now_playing = self._data.get("now_playing", {})
+        stream_meta = self._stream_meta
+        return {
+            "active_preset": self._active_preset,
+            "bose_ip": self.coordinator.device_ip,
+            "station_name": stream_meta.get("station_name") or now_playing.get("station_name") or None,
+            "track_artist": stream_meta.get("track_artist") or None,
+            "track_title": stream_meta.get("track_title") or None,
+            "track_image": stream_meta.get("track_image") or None,
+            "title_classification": stream_meta.get("title_classification") or None,
+            "is_station_branding": stream_meta.get("is_station_branding"),
+        }
 
     async def async_select_source(self, source: str) -> None:
         match = re.match(r"Preset (\d+):", source)
@@ -171,6 +217,12 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
             "set_volume",
             device=self.coordinator.device_ip,
             args={"level": round(volume * 100)},
+        )
+        await self.coordinator.async_request_refresh()
+
+    async def async_mute_volume(self, mute: bool) -> None:
+        await self._client.async_send(
+            "set_muted", device=self.coordinator.device_ip, args={"muted": mute}
         )
         await self.coordinator.async_request_refresh()
 

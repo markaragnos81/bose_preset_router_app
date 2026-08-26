@@ -18,6 +18,7 @@ import logging
 import websockets
 from websockets.server import WebSocketServerProtocol
 
+from airplay import AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,8 +47,16 @@ _CONTROL_COMMANDS = {
 
 
 class BoseRouterServer:
-    def __init__(self, *, clients: dict[str, BoseSoundTouchClient]) -> None:
+    def __init__(
+        self,
+        *,
+        clients: dict[str, BoseSoundTouchClient],
+        airplay_players: dict[str, AirPlayPlayer] | None = None,
+        resume_store: AirPlayResumeStore | None = None,
+    ) -> None:
         self._clients = clients
+        self._airplay_players = airplay_players or {}
+        self._resume_store = resume_store
 
     def _get_client(self, device_ip: str) -> BoseSoundTouchClient:
         client = self._clients.get(device_ip)
@@ -86,13 +95,16 @@ class BoseRouterServer:
             return
 
         try:
-            result = await self._dispatch(client, command, args)
+            result = await self._dispatch(client, device_ip, command, args)
             await websocket.send(json.dumps({"success": True, "result": result}))
         except Exception as err:
             _LOGGER.warning("Command %r for %s failed: %s", command, device_ip, err)
             await websocket.send(json.dumps({"success": False, "error": str(err)}))
 
-    async def _dispatch(self, client: BoseSoundTouchClient, command: str, args: dict) -> object:
+    async def _dispatch(self, client: BoseSoundTouchClient, device_ip: str, command: str, args: dict) -> object:
+        if command in ("play_stream", "stop_stream", "stream_status"):
+            return await self._dispatch_airplay(device_ip, command, args)
+
         if command in _READ_COMMANDS:
             return await getattr(client, _READ_COMMANDS[command])()
 
@@ -123,6 +135,34 @@ class BoseRouterServer:
         if command == "send_key":
             await client.async_send_key(str(args["key"]))
             return None
+
+        raise ValueError(f"unknown_command: {command}")
+
+    async def _dispatch_airplay(self, device_ip: str, command: str, args: dict) -> object:
+        player = self._airplay_players.get(device_ip)
+        if player is None:
+            raise KeyError(f"No AirPlay player configured for device: {device_ip}")
+
+        if command == "stream_status":
+            return {"is_playing": player.is_playing}
+
+        if command == "stop_stream":
+            await player.stop()
+            if self._resume_store is not None:
+                await self._resume_store.async_clear(device_ip)
+            return None
+
+        if command == "play_stream":
+            started = await player.play(
+                str(args["url"]),
+                title=str(args.get("title", "")),
+                artist=str(args.get("artist", "")),
+                album=str(args.get("album", "")),
+                volume_percent=args.get("volume_percent"),
+            )
+            if started and self._resume_store is not None and "preset_id" in args:
+                await self._resume_store.async_set(device_ip, int(args["preset_id"]))
+            return {"started": started}
 
         raise ValueError(f"unknown_command: {command}")
 

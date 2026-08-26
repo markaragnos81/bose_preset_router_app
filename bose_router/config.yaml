@@ -1,15 +1,17 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.2.0"
+version: "0.3.0"
 slug: bose_router
 description: >-
-  Phase 2: multi-device Bose SoundTouch status/control server, discoverable
-  via Zeroconf, controlled over WebSocket. Full read (info/volume/now_playing
-  /presets/sources/zone) and control (play/pause/volume/presets/source
-  select/zone) surface ported from bose_preset_router's api.py. Runs outside
-  Home Assistant's own process so it can (in later phases) use native
-  dependencies HA custom components cannot install, such as libchromaprint
-  for AcoustID audio fingerprinting.
+  Phase 3: adds AirPlay/RAOP streaming (pyatv) on top of Phase 2's full Bose
+  read/control surface, discoverable via Zeroconf, controlled over WebSocket.
+  The AirPlay stream+connect lifecycle runs directly on this App's own event
+  loop with no thread-isolation workaround — the point of moving off the HA
+  custom-component architecture, where pyatv's internal blocking call had to
+  be isolated onto a dedicated thread to avoid stalling Home Assistant's own
+  shared event loop. Runs outside Home Assistant's own process so it can (in
+  later phases) also use native dependencies HA custom components cannot
+  install, such as libchromaprint for AcoustID audio fingerprinting.
 url: "https://github.com/markaragnos81/bose_preset_router_app/tree/main/bose_router"
 arch:
   - aarch64

@@ -24,7 +24,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.9.1"
+APP_VERSION = "0.9.2"
 
 
 async def _noop_update_callback(meta: dict) -> None:
@@ -121,7 +121,11 @@ async def _apply_configured_presets(
 
 async def async_main() -> None:
     options = _load_options()
-    devices = options.get("devices") or []
+    all_devices = options.get("devices") or []
+    devices = [d for d in all_devices if d.get("enabled", True)]
+    for device in all_devices:
+        if device not in devices:
+            _LOGGER.info("Skipping disabled device: %s (%s)", device.get("name") or "?", device.get("ip"))
     ws_port = int(options.get("ws_port") or 8765)
     acoustid_api_key = str(options.get("acoustid_api_key") or "")
     global_presets = options.get("presets") or []

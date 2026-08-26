@@ -1,0 +1,52 @@
+configuration:
+  devices:
+    name: Bose-Lautsprecher
+    description: Die physischen Bose-SoundTouch-Lautsprecher, die diese App steuert.
+    fields:
+      name:
+        name: Name
+        description: Anzeigename für diesen Lautsprecher.
+      ip:
+        name: IP-Adresse
+        description: Die IP-Adresse des Lautsprechers im Netzwerk.
+      enabled:
+        name: Aktiviert
+        description: Ausschalten, um diesen Lautsprecher komplett zu überspringen (kein Polling, keine Preset-Synchronisierung) — praktisch, solange er offline ist.
+  presets:
+    name: Standard-Presets
+    description: Preset-1-bis-6-URLs, die auf alle Lautsprecher angewendet werden, sofern unten nicht überschrieben. "Name" leer lassen, um den Sendernamen automatisch aus dem Stream aufzulösen.
+    fields:
+      id:
+        name: Preset-Nummer
+        description: 1 bis 6, entsprechend den physischen Preset-Tasten.
+      url:
+        name: Stream-URL
+        description: Die Stream-URL des Senders.
+      name:
+        name: Anzeigename
+        description: Optional — leer lassen, um automatisch aus dem Stream aufzulösen.
+  device_preset_overrides:
+    name: Geräte-spezifische Preset-Ausnahmen
+    description: Ersetzt einen einzelnen Preset-Slot auf genau einem Lautsprecher, wenn er vom obigen Standard abweichen soll.
+    fields:
+      ip:
+        name: Lautsprecher-IP
+        description: Für welchen Lautsprecher diese Ausnahme gilt.
+      id:
+        name: Preset-Nummer
+        description: 1 bis 6.
+      url:
+        name: Stream-URL
+        description: Die Stream-URL des Senders.
+      name:
+        name: Anzeigename
+        description: Optional — leer lassen, um automatisch aus dem Stream aufzulösen.
+  acoustid_api_key:
+    name: AcoustID-API-Schlüssel
+    description: Optional — aktiviert Audio-Fingerprinting als letzten Ausweg für Sender, die nie echte Songtitel senden. Kostenlosen Schlüssel unter acoustid.org/api-key holen (dort eine "Application" registrieren, nicht nur den persönlichen Key).
+  log_level:
+    name: Log-Stufe
+    description: Wie detailliert die App ins Log schreibt. "info" passt für den normalen Betrieb; "debug" liefert zusätzliche Routine-Details für die Fehlersuche.
+  ws_port:
+    name: WebSocket-Port
+    description: Der Port, auf dem die App auf den Home-Assistant-Client wartet. Nur ändern, wenn er mit etwas anderem im Netzwerk kollidiert.

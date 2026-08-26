@@ -1,0 +1,52 @@
+configuration:
+  devices:
+    name: Bose speakers
+    description: The physical Bose SoundTouch speakers this App controls.
+    fields:
+      name:
+        name: Name
+        description: Display name for this speaker.
+      ip:
+        name: IP address
+        description: The speaker's IP address on your network.
+      enabled:
+        name: Enabled
+        description: Turn off to fully skip this speaker (no polling, no preset sync) — useful while it's offline.
+  presets:
+    name: Default presets
+    description: Preset 1-6 URLs applied to every speaker unless overridden below. Leave "name" blank to auto-resolve the station name from the stream.
+    fields:
+      id:
+        name: Preset number
+        description: 1 through 6, matching the physical preset buttons.
+      url:
+        name: Stream URL
+        description: The station's stream URL.
+      name:
+        name: Display name
+        description: Optional — leave blank to resolve automatically from the stream.
+  device_preset_overrides:
+    name: Per-speaker preset overrides
+    description: Replaces a single preset slot on one specific speaker, when it needs to differ from the default above.
+    fields:
+      ip:
+        name: Speaker IP
+        description: Which speaker this override applies to.
+      id:
+        name: Preset number
+        description: 1 through 6.
+      url:
+        name: Stream URL
+        description: The station's stream URL.
+      name:
+        name: Display name
+        description: Optional — leave blank to resolve automatically from the stream.
+  acoustid_api_key:
+    name: AcoustID API key
+    description: Optional — enables audio-fingerprinting as a last-resort fallback for stations that never send real song titles. Get a free key at acoustid.org/api-key (register an "application", not just a personal key).
+  log_level:
+    name: Log level
+    description: How much detail to write to the App's log. "info" is right for normal use; "debug" adds routine/noisy detail useful when troubleshooting.
+  ws_port:
+    name: WebSocket port
+    description: The port the App listens on for the Home Assistant client. Only change this if it conflicts with something else on your network.

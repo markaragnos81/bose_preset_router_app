@@ -49,13 +49,26 @@ def chromaprint_available() -> dict[str, object]:
 async def _async_capture_stream(session: aiohttp.ClientSession, url: str, dest: Path) -> None:
     async with session.get(url, timeout=aiohttp.ClientTimeout(total=_CAPTURE_TIMEOUT_SECONDS)) as resp:
         resp.raise_for_status()
+        _LOGGER.info(
+            "Capturing %s: HTTP %d, content-type=%s, headers=%s",
+            url, resp.status, resp.headers.get("Content-Type"), dict(resp.headers),
+        )
         loop = asyncio.get_running_loop()
         deadline = loop.time() + CAPTURE_SECONDS
+        total_bytes = 0
+        first_chunk = b""
         with dest.open("wb") as f:
             async for chunk in resp.content.iter_chunked(8192):
+                if not first_chunk:
+                    first_chunk = chunk
+                total_bytes += len(chunk)
                 f.write(chunk)
                 if loop.time() >= deadline:
                     break
+        _LOGGER.info(
+            "Captured %d bytes from %s, first 16 bytes: %s",
+            total_bytes, url, first_chunk[:16].hex(),
+        )
 
 
 def _fingerprint_and_lookup(path: str, api_key: str) -> dict:

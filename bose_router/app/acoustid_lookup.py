@@ -60,6 +60,7 @@ async def _async_capture_stream(session: aiohttp.ClientSession, url: str, dest: 
 
 def _fingerprint_and_lookup(path: str, api_key: str) -> dict:
     duration, fingerprint = acoustid.fingerprint_file(path, maxlength=CAPTURE_SECONDS)
+    _LOGGER.info("Fingerprinted %s: decoded duration=%.1fs, fingerprint length=%d chars", path, duration, len(fingerprint))
     response = acoustid.lookup(api_key, fingerprint, duration)
     best: dict | None = None
     for score, recording_id, title, artist in acoustid.parse_lookup_result(response):
@@ -90,6 +91,8 @@ async def async_identify_track(
         except acoustid.AcoustidError as err:
             _LOGGER.warning("AcoustID lookup failed for %s: %s", stream_url, err)
             return {}
+
+    _LOGGER.info("AcoustID best match for %s: %s", stream_url, result or "none")
 
     if not result or result.get("title") is None or result["score"] < min_score:
         return {}

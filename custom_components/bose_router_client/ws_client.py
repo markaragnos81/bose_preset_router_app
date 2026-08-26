@@ -35,20 +35,30 @@ class BoseRouterAppClient:
             await self._ws.close()
             self._ws = None
 
-    async def _async_ensure_connected(self) -> None:
-        if self._ws is None or self._ws.closed:
-            await self.async_connect()
-
     async def async_send(self, command: str, *, device: str | None = None, args: dict | None = None) -> object:
+        payload: dict = {"command": command}
+        if device:
+            payload["device"] = device
+        if args:
+            payload["args"] = args
+        raw_payload = json.dumps(payload)
+
         async with self._lock:
-            await self._async_ensure_connected()
-            payload: dict = {"command": command}
-            if device:
-                payload["device"] = device
-            if args:
-                payload["args"] = args
-            await self._ws.send(json.dumps(payload))
-            raw = await self._ws.recv()
+            if self._ws is None:
+                await self.async_connect()
+            try:
+                await self._ws.send(raw_payload)
+                raw = await self._ws.recv()
+            except websockets.ConnectionClosed:
+                # The `.closed` attribute this used to check for pre-flight
+                # doesn't exist on newer websockets versions' connection
+                # object (AttributeError, confirmed live) — reconnecting
+                # reactively on ConnectionClosed instead is both simpler and
+                # robust across library versions.
+                _LOGGER.debug("WebSocket connection to App was closed, reconnecting")
+                await self.async_connect()
+                await self._ws.send(raw_payload)
+                raw = await self._ws.recv()
         response = json.loads(raw)
         if not response.get("success"):
             raise BoseRouterAppError(response.get("error") or "unknown_error")

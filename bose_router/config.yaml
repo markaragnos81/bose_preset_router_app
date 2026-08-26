@@ -3,15 +3,11 @@ name: Bose Preset Router
 version: "0.10.0"
 slug: bose_router
 description: >-
-  Phase 7: preset maintenance lives in the App's own Configuration tab, not
-  the HA client — global default presets (id/url/name) applied to every
-  device, with optional per-device overrides (matched by IP) for presets
-  that should differ on one speaker. Pushed to each physical device via
-  Bose's native storePreset endpoint on every App start. Also carries zone
-  (multi-room group) management, ICY multi-second listen, a cooldown-gated
-  AcoustID fingerprinting fallback, and the full Bose read/control surface
-  with AirPlay/RAOP streaming (pyatv) and no thread-isolation workaround.
-  Discoverable via Zeroconf, controlled over WebSocket.
+  Controls Bose SoundTouch speakers over your local network — presets,
+  volume, playback and physical remote-button presses — with real
+  track/artist/cover-art metadata and reliable AirPlay-based preset
+  playback. Pair with the "Bose Preset Router (App Client)" HACS
+  integration to get media_player entities in Home Assistant.
 url: "https://github.com/markaragnos81/bose_preset_router_app/tree/main/bose_router"
 arch:
   - aarch64

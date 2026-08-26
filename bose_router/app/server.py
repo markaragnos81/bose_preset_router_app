@@ -162,7 +162,37 @@ class BoseRouterServer:
             await client.async_send_key(str(args["key"]))
             return None
 
+        if command in ("set_zone", "add_zone_slaves", "remove_zone_slaves"):
+            return await self._dispatch_zone(command, args)
+
         raise ValueError(f"unknown_command: {command}")
+
+    async def _dispatch_zone(self, command: str, args: dict) -> None:
+        """Zone commands take IPs ("master_ip", "member_ips") and resolve each
+        to its Bose deviceID internally — Bose's setZone/addZoneSlave/
+        removeZoneSlave endpoints require deviceIDs, but callers shouldn't
+        need to know or cache them.
+        """
+        master_ip = str(args["master_ip"])
+        member_ips = [str(ip) for ip in args.get("member_ips") or []]
+
+        master_client = self._get_client(master_ip)
+        master_info = await master_client.async_get_info()
+        master_device_id = str(master_info["device_id"])
+
+        members: list[dict[str, str]] = []
+        for member_ip in member_ips:
+            member_client = self._get_client(member_ip)
+            member_info = await member_client.async_get_info()
+            members.append({"ip_address": member_ip, "device_id": str(member_info["device_id"])})
+
+        if command == "set_zone":
+            await master_client.async_set_zone(master_device_id=master_device_id, members=members)
+        elif command == "add_zone_slaves":
+            await master_client.async_add_zone_slaves(master_device_id=master_device_id, members=members)
+        elif command == "remove_zone_slaves":
+            await master_client.async_remove_zone_slaves(master_device_id=master_device_id, members=members)
+        return None
 
     async def _dispatch_airplay(self, device_ip: str, command: str, args: dict) -> object:
         player = self._airplay_players.get(device_ip)

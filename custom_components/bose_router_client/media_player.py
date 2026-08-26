@@ -1,11 +1,15 @@
-"""Minimal media_player entity proving the full round trip: HA entity ->
-App (WebSocket) -> real Bose hardware, for both reads (coordinator-polled
-snapshot) and writes (volume control). Feature-minimal by design — this is
-Phase 2's proof that control works end-to-end, not a production-parity
-entity (that comes once bose_preset_router's full feature set is ported).
+"""media_player entity: HA <-> App (WebSocket) <-> real Bose hardware.
+
+Started as Phase 2's minimal round-trip proof; now carries preset
+selection, real track/artist/album/cover metadata (from the App's ICY/
+AcoustID pipeline, not just Bose's own now_playing), next/previous track,
+power on/standby, and zone grouping (Phase 6) — production-parity with
+bose_preset_router's own media_player.py plus data it never had (real
+song/cover for stations that only ever broadcast branding in now_playing).
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from homeassistant.components.media_player import MediaPlayerEntity, MediaPlayerEntityFeature, MediaPlayerState
@@ -46,8 +50,14 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         | MediaPlayerEntityFeature.PLAY
         | MediaPlayerEntityFeature.PAUSE
         | MediaPlayerEntityFeature.STOP
+        | MediaPlayerEntityFeature.NEXT_TRACK
+        | MediaPlayerEntityFeature.PREVIOUS_TRACK
+        | MediaPlayerEntityFeature.SELECT_SOURCE
+        | MediaPlayerEntityFeature.TURN_ON
+        | MediaPlayerEntityFeature.TURN_OFF
         | MediaPlayerEntityFeature.GROUPING
     )
+    _attr_media_image_remotely_accessible = True
 
     def __init__(self, coordinator: BoseRouterDeviceCoordinator, *, client: BoseRouterAppClient) -> None:
         super().__init__(coordinator)
@@ -93,9 +103,68 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
         return None if actual is None else max(0.0, min(1.0, float(actual) / 100))
 
     @property
+    def _stream_meta(self) -> dict[str, Any]:
+        return self._data.get("stream_meta", {})
+
+    @property
+    def _has_real_track(self) -> bool:
+        return self._stream_meta.get("title_classification") == "track"
+
+    @property
     def media_title(self) -> str | None:
+        if self._has_real_track:
+            return self._stream_meta.get("track_title") or None
         now_playing = self._data.get("now_playing", {})
         return now_playing.get("station_name") or now_playing.get("item_name") or None
+
+    @property
+    def media_artist(self) -> str | None:
+        return self._stream_meta.get("track_artist") or None if self._has_real_track else None
+
+    @property
+    def media_album_name(self) -> str | None:
+        if self._has_real_track:
+            return None
+        now_playing = self._data.get("now_playing", {})
+        return now_playing.get("station_name") or None
+
+    @property
+    def media_image_url(self) -> str | None:
+        if self._has_real_track and self._stream_meta.get("track_image"):
+            return self._stream_meta["track_image"]
+        station_logo = self._stream_meta.get("station_logo")
+        if station_logo:
+            return station_logo
+        now_playing = self._data.get("now_playing", {})
+        return now_playing.get("image") or None
+
+    @property
+    def source_list(self) -> list[str] | None:
+        presets = self._data.get("presets") or []
+        return [f"Preset {p['id']}: {p['item_name']}" for p in presets if p.get("item_name")] or None
+
+    @property
+    def source(self) -> str | None:
+        now_playing = self._data.get("now_playing", {})
+        now_location = now_playing.get("location")
+        now_item_name = now_playing.get("item_name")
+        for preset in self._data.get("presets") or []:
+            if now_location and preset.get("location") == now_location:
+                return f"Preset {preset['id']}: {preset['item_name']}"
+            if now_item_name and not now_location and preset.get("item_name") == now_item_name:
+                return f"Preset {preset['id']}: {preset['item_name']}"
+        return None
+
+    async def async_select_source(self, source: str) -> None:
+        match = re.match(r"Preset (\d+):", source)
+        if not match:
+            return
+        await self._client.async_send(
+            "select_preset",
+            device=self.coordinator.device_ip,
+            args={"preset_id": int(match.group(1))},
+        )
+        await self.coordinator.async_request_refresh()
 
     async def async_set_volume_level(self, volume: float) -> None:
         await self._client.async_send(
@@ -115,6 +184,22 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
 
     async def async_media_stop(self) -> None:
         await self._client.async_send("stop", device=self.coordinator.device_ip)
+        await self.coordinator.async_request_refresh()
+
+    async def async_media_next_track(self) -> None:
+        await self._client.async_send("next_track", device=self.coordinator.device_ip)
+        await self.coordinator.async_request_refresh()
+
+    async def async_media_previous_track(self) -> None:
+        await self._client.async_send("previous_track", device=self.coordinator.device_ip)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_on(self) -> None:
+        await self._client.async_send("power_on", device=self.coordinator.device_ip)
+        await self.coordinator.async_request_refresh()
+
+    async def async_turn_off(self) -> None:
+        await self._client.async_send("standby", device=self.coordinator.device_ip)
         await self.coordinator.async_request_refresh()
 
     @property

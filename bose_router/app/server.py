@@ -34,7 +34,7 @@ _READ_COMMANDS = {
     "presets": "async_get_presets",
     "sources": "async_get_sources",
     "zone": "async_get_zone",
-    "snapshot": "async_fetch_snapshot",
+    # "snapshot" is handled explicitly in _dispatch (merges in stream_meta/airplay).
 }
 
 _CONTROL_COMMANDS = {
@@ -121,6 +121,14 @@ class BoseRouterServer:
         if command == "stream_meta":
             tracker = self._stream_meta_trackers.get(device_ip)
             return tracker.current_meta if tracker is not None else {}
+
+        if command == "snapshot":
+            snapshot = await client.async_fetch_snapshot()
+            tracker = self._stream_meta_trackers.get(device_ip)
+            snapshot["stream_meta"] = tracker.current_meta if tracker is not None else {}
+            player = self._airplay_players.get(device_ip)
+            snapshot["airplay"] = {"is_playing": player.is_playing if player is not None else False}
+            return snapshot
 
         if command == "identify_track":
             tracker = self._stream_meta_trackers.get(device_ip)

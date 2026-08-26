@@ -125,9 +125,23 @@ class BoseRouterServer:
         if command == "snapshot":
             snapshot = await client.async_fetch_snapshot()
             tracker = self._stream_meta_trackers.get(device_ip)
-            snapshot["stream_meta"] = tracker.current_meta if tracker is not None else {}
             player = self._airplay_players.get(device_ip)
-            snapshot["airplay"] = {"is_playing": player.is_playing if player is not None else False}
+            is_airplay_playing = player.is_playing if player is not None else False
+
+            if tracker is not None and not is_airplay_playing:
+                # Not our own AirPlay session (that already feeds the tracker
+                # explicitly via play_stream) — pick up whatever URL the native
+                # SoundTouch preset/source is actually playing, same source
+                # production's coordinator polls (now_playing.location), so
+                # track/cover metadata works no matter how playback started.
+                location = str(snapshot.get("now_playing", {}).get("location") or "")
+                if location and location != tracker.current_meta.get("stream_url"):
+                    await tracker.async_set_stream(location)
+                elif not location:
+                    await tracker.async_clear()
+
+            snapshot["stream_meta"] = tracker.current_meta if tracker is not None else {}
+            snapshot["airplay"] = {"is_playing": is_airplay_playing}
             return snapshot
 
         if command == "identify_track":

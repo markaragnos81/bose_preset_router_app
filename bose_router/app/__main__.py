@@ -24,7 +24,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.8.2"
+APP_VERSION = "0.8.3"
 
 
 async def _noop_update_callback(meta: dict) -> None:
@@ -111,6 +111,7 @@ async def async_main() -> None:
         advertiser = ZeroconfAdvertiser(server_id=server_id, server_version=APP_VERSION, port=ws_port)
 
         await advertiser.async_start()
+        asyncio.create_task(server.async_resume_airplay_devices(), name="airplay_resume")
         try:
             await server.serve_forever(port=ws_port)
         finally:

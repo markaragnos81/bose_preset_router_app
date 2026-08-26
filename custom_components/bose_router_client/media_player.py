@@ -160,17 +160,26 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
     def _matched_preset(self) -> dict[str, Any] | None:
         """Return the preset dict matching what's currently playing, or None.
 
-        Location match takes priority (works for UPnP/native-preset
-        playback); falls back to a source+item_name match when location is
-        empty (e.g. AirPlay, where Bose doesn't report a location — see
-        v0.7.21's now_playing.location caveat). Doesn't replicate
-        production's AirPlay-session-triggered-preset branch — this app has
-        no equivalent "preset selected via AirPlay routing" state.
+        AirPlay's now_playing carries neither location nor item_name (a
+        known Bose quirk - confirmed live), so a currently-active AirPlay
+        session's preset_id (the app's own record of what it started
+        playing, from the resume store) takes priority when present.
+        Otherwise falls back to a location or item_name match against the
+        preset list - the path for native-preset/UPnP playback that isn't
+        going through this app's own AirPlay dispatch at all (e.g. someone
+        pressed a physical preset button).
         """
+        presets = self._data.get("presets") or []
+        airplay = self._data.get("airplay", {})
+        if airplay.get("is_playing") and airplay.get("preset_id") is not None:
+            match = next((p for p in presets if int(p.get("id", 0)) == airplay["preset_id"]), None)
+            if match is not None:
+                return match
+
         now_playing = self._data.get("now_playing", {})
         now_location = now_playing.get("location")
         now_item_name = now_playing.get("item_name")
-        for preset in self._data.get("presets") or []:
+        for preset in presets:
             if now_location and preset.get("location") == now_location:
                 return preset
             if now_item_name and not now_location and preset.get("item_name") == now_item_name:

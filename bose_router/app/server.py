@@ -141,7 +141,11 @@ class BoseRouterServer:
                     await tracker.async_clear()
 
             snapshot["stream_meta"] = tracker.current_meta if tracker is not None else {}
-            snapshot["airplay"] = {"is_playing": is_airplay_playing}
+            resume_preset_id = self._resume_store.get(device_ip) if self._resume_store is not None else None
+            snapshot["airplay"] = {
+                "is_playing": is_airplay_playing,
+                "preset_id": resume_preset_id if is_airplay_playing else None,
+            }
             return snapshot
 
         if command == "identify_track":
@@ -209,11 +213,61 @@ class BoseRouterServer:
         if preset is None or not preset.get("location"):
             raise ValueError(f"preset_not_found_or_no_url: {preset_id}")
 
+        # AirPlay's own connect-time default volume overrides whatever the
+        # speaker was already set to (observed live: jumps to ~33%) unless
+        # we explicitly re-assert it - so read the current volume first and
+        # pass it straight back through, rather than accepting AirPlay's
+        # default or hard-coding one of our own.
+        try:
+            current_volume = await client.async_get_volume()
+            volume_percent = int(current_volume["actual"])
+        except Exception as err:
+            _LOGGER.debug("Could not read current volume before preset switch on %s: %s", device_ip, err)
+            volume_percent = None
+
         await self._dispatch_airplay(
             device_ip,
             "play_stream",
-            {"url": preset["location"], "title": preset.get("item_name", ""), "preset_id": preset_id},
+            {
+                "url": preset["location"],
+                "title": preset.get("item_name", ""),
+                "preset_id": preset_id,
+                "volume_percent": volume_percent,
+            },
         )
+
+    async def async_resume_airplay_devices(self) -> None:
+        """Replay whatever preset was last selected via AirPlay on each
+        device, if anything - called once at App startup. Mirrors
+        production bose_preset_router's async_resume_airplay_devices: skip
+        (and clear the stale entry for) any device that's actually in
+        standby now, since that means it was turned off some other way
+        (Bose app, physical button) since the last resume-store write, and
+        resuming it would un-intentionally power it back on.
+        """
+        if self._resume_store is None:
+            return
+        for device_ip, client in self._clients.items():
+            preset_id = self._resume_store.get(device_ip)
+            if preset_id is None:
+                continue
+            try:
+                now_playing = await client.async_get_now_playing()
+            except Exception as err:
+                _LOGGER.debug("Could not check power state for AirPlay resume on %s: %s", device_ip, err)
+                continue
+            if str(now_playing.get("source", "")).upper() in ("STANDBY", ""):
+                _LOGGER.info(
+                    "Skipping AirPlay resume for %s (in standby - turned off since last playing preset %s)",
+                    device_ip, preset_id,
+                )
+                await self._resume_store.async_clear(device_ip)
+                continue
+            _LOGGER.info("Resuming AirPlay preset %s for %s after App start", preset_id, device_ip)
+            try:
+                await self._dispatch_select_preset(client, device_ip, preset_id)
+            except Exception as err:
+                _LOGGER.warning("AirPlay resume failed for %s preset %s: %s", device_ip, preset_id, err)
 
     async def _dispatch_zone(self, command: str, args: dict) -> None:
         """Zone commands take IPs ("master_ip", "member_ips") and resolve each

@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.8.2"
+version: "0.8.3"
 slug: bose_router
 description: >-
   Phase 6: zone (multi-room group) management — set_zone/add_zone_slaves/

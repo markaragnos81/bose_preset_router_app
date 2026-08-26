@@ -203,7 +203,16 @@ def _classify_stream_title(
     if any(marker in normalized_stream for marker in ("http", "www", ".com", ".net", ".de")):
         return False, "contains_url_or_domain"
 
-    if any(token in normalized_stream for token in ("listen live", "on air", "webradio", "unknown", "advert", "jingle")):
+    if any(
+        token in normalized_stream
+        for token in (
+            "listen live", "on air", "webradio", "unknown", "advert", "jingle",
+            # German equivalents — confirmed live: "RADIO 21 - Werbung" (ad break)
+            # was parsed as artist="RADIO 21" title="Werbung" and accepted as a
+            # real track since none of the English-only markers matched it.
+            "werbung", "nachrichten", "verkehrsfunk", "verkehrsmeldung",
+        )
+    ):
         return False, "contains_generic_broadcast_phrase"
 
     normalized_artist = _normalize_text(artist)

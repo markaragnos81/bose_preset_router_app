@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.9.0"
+version: "0.9.1"
 slug: bose_router
 description: >-
   Phase 7: preset maintenance lives in the App's own Configuration tab, not
@@ -32,12 +32,12 @@ schema:
   presets:
     - id: "int"
       url: "str"
-      name: "str"
+      name: "str?"
   device_preset_overrides:
     - ip: "str"
       id: "int"
       url: "str"
-      name: "str"
+      name: "str?"
 # No `image:` field for now — Supervisor builds locally from the Dockerfile
 # below instead of pulling a pre-built registry image. Re-add this (and set
 # up a CI build) once the app is ready to be distributed as a prebuilt image.

@@ -24,7 +24,7 @@ from zeroconf_advertise import ZeroconfAdvertiser
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 _LOGGER = logging.getLogger(__name__)
 
-APP_VERSION = "0.9.0"
+APP_VERSION = "0.9.1"
 
 
 async def _noop_update_callback(meta: dict) -> None:
@@ -86,15 +86,32 @@ def _resolve_device_presets(
 
 
 async def _apply_configured_presets(
-    clients: dict[str, BoseSoundTouchClient], global_presets: list[dict], overrides: list[dict]
+    session: aiohttp.ClientSession,
+    clients: dict[str, BoseSoundTouchClient],
+    global_presets: list[dict],
+    overrides: list[dict],
 ) -> None:
     """Push configured presets to each physical device on every App start —
     same mechanism production used (Bose's native storePreset endpoint),
-    just driven by App config instead of a HA config_flow.
+    just driven by App config instead of a HA config_flow. `name` is
+    optional in the config; when omitted it's resolved the same way
+    station names already are elsewhere (Radio Browser -> live ICY
+    icy-name -> hostname fallback) rather than requiring the user to type
+    it in by hand.
     """
+    name_cache: dict[str, str] = {}
     for device_ip, client in clients.items():
         resolved = _resolve_device_presets(device_ip, global_presets, overrides)
         for preset_id, (url, name) in resolved.items():
+            if not name:
+                if url not in name_cache:
+                    try:
+                        meta = await async_resolve_station_meta(session, url)
+                        name_cache[url] = str(meta.get("name") or "")
+                    except Exception as err:
+                        _LOGGER.debug("Could not resolve a name for preset URL %s: %s", url, err)
+                        name_cache[url] = ""
+                name = name_cache[url]
             try:
                 await client.async_store_preset(preset_id, url, name or f"Preset {preset_id}")
                 _LOGGER.info("Applied preset %d on %s: %r (%s)", preset_id, device_ip, name, url)
@@ -164,7 +181,7 @@ async def async_main() -> None:
         await advertiser.async_start()
         if global_presets or device_preset_overrides:
             asyncio.create_task(
-                _apply_configured_presets(clients, global_presets, device_preset_overrides),
+                _apply_configured_presets(session, clients, global_presets, device_preset_overrides),
                 name="apply_presets",
             )
         asyncio.create_task(server.async_resume_airplay_devices(), name="airplay_resume")

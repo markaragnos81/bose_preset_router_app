@@ -16,12 +16,13 @@ import aiohttp
 from acoustid_lookup import async_identify_track
 from airplay import AirPlayDiscovery, AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
+from bose_notify import BoseNotificationListener
 from server import BoseRouterServer
 from station_meta import async_resolve_station_meta
 from stream_metadata import StreamMetadataTracker
 from zeroconf_advertise import ZeroconfAdvertiser
 
-APP_VERSION = "0.9.4"
+APP_VERSION = "0.10.0"
 OPTIONS_PATH = Path("/data/options.json")
 
 
@@ -190,6 +191,18 @@ async def async_main() -> None:
         )
         advertiser = ZeroconfAdvertiser(server_id=server_id, server_version=APP_VERSION, port=ws_port)
 
+        def _make_press_handler(device_ip: str):
+            async def _on_preset_pressed(preset_id: int) -> None:
+                await server.async_handle_physical_preset_press(device_ip, preset_id)
+            return _on_preset_pressed
+
+        notify_listeners = {
+            device["ip"]: BoseNotificationListener(device["ip"], _make_press_handler(device["ip"]))
+            for device in devices
+        }
+        for listener in notify_listeners.values():
+            await listener.async_start()
+
         await advertiser.async_start()
         if global_presets or device_preset_overrides:
             asyncio.create_task(
@@ -201,6 +214,8 @@ async def async_main() -> None:
             await server.serve_forever(port=ws_port)
         finally:
             await advertiser.async_stop()
+            for listener in notify_listeners.values():
+                await listener.async_stop()
             for player in airplay_players.values():
                 await player.stop()
             for tracker in stream_meta_trackers.values():

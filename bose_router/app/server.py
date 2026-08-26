@@ -239,6 +239,17 @@ class BoseRouterServer:
             },
         )
 
+    async def async_handle_physical_preset_press(self, device_ip: str, preset_id: int) -> None:
+        """Entry point for BoseNotificationListener: the device itself
+        reported (via its own notification socket) that a physical preset
+        button was pressed. Immediately overrides the device's native
+        UPnP-resolution attempt (which fails - "Dienst nicht verfügbar" -
+        for presets whose URL the speaker can't resolve/reach on its own)
+        with a working AirPlay-based play.
+        """
+        client = self._get_client(device_ip)
+        await self._dispatch_select_preset(client, device_ip, preset_id)
+
     async def async_resume_airplay_devices(self) -> None:
         """Replay whatever preset was last selected via AirPlay on each
         device, if anything - called once at App startup. Mirrors

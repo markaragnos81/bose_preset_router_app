@@ -1,6 +1,6 @@
 # https://developers.home-assistant.io/docs/apps/configuration#app-configuration
 name: Bose Preset Router
-version: "0.9.4"
+version: "0.10.0"
 slug: bose_router
 description: >-
   Phase 7: preset maintenance lives in the App's own Configuration tab, not

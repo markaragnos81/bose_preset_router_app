@@ -22,7 +22,7 @@ from station_meta import async_resolve_station_meta
 from stream_metadata import StreamMetadataTracker
 from zeroconf_advertise import ZeroconfAdvertiser
 
-APP_VERSION = "0.10.1"
+APP_VERSION = "0.10.2"
 OPTIONS_PATH = Path("/data/options.json")
 
 

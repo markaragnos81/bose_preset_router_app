@@ -182,6 +182,39 @@ async def async_lookup_radio_logo(session: aiohttp.ClientSession, name: str, url
 _ICY_LISTEN_SECONDS = 6.0
 
 
+def _raw_header(resp: aiohttp.ClientResponse, name: bytes) -> bytes:
+    """Return the raw bytes of an HTTP header before aiohttp's own decoding."""
+    for key, value in resp.raw_headers:
+        if key.lower() == name:
+            return value
+    return b""
+
+
+def _decode_icy_bytes(data: bytes) -> str:
+    try:
+        return data.decode("utf-8")
+    except UnicodeDecodeError:
+        return data.decode("latin-1")
+
+
+def _fix_mojibake(text: str) -> str:
+    """Undo a common relay-side bug: this deployment's local stream relay
+    occasionally re-serves upstream UTF-8 text that it first misread as
+    Latin-1 (confirmed live: "Mötley Crüe" came through as "MÃ¶tley
+    CrÃ¼e" - i.e. correct UTF-8 bytes for the umlauts, decoded-as-latin1-
+    then-re-encoded-as-utf8 upstream, before we ever see it). That's
+    reversible: encoding the mangled text back to Latin-1 and decoding the
+    result as UTF-8 recovers the original. Only applied when the tell-tale
+    "Ã"/"Â" markers are present, so genuinely correct text is left alone.
+    """
+    if not text or ("Ã" not in text and "Â" not in text):
+        return text
+    try:
+        return text.encode("latin-1").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return text
+
+
 async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict[str, str]:
     """Fetch live ICY metadata from an internet radio stream.
 
@@ -209,12 +242,20 @@ async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict
             if resp.status not in (200, 206):
                 return {}
 
-            icy_name = resp.headers.get("icy-name", "").strip()
+            # aiohttp's own header decoding silently dropped non-ASCII bytes
+            # here on this deployment's local relay (confirmed live: a
+            # station's stored preset name came back "Gttingen" - the o with
+            # umlaut just gone, not even mojibake'd). Headers are technically
+            # ISO-8859-1 per RFC 7230 but plenty of Icecast/relay software
+            # sends raw UTF-8 anyway, so decode the raw header bytes
+            # ourselves with the same utf-8-then-latin-1 fallback used below
+            # for the metadata body instead of trusting resp.headers.
+            icy_name = _decode_icy_bytes(_raw_header(resp, b"icy-name")).strip()
             metaint_str = resp.headers.get("icy-metaint", "0")
             metaint = int(metaint_str) if metaint_str.isdigit() else 0
 
             if not metaint:
-                return {"stream_title": "", "icy_name": icy_name}
+                return {"stream_title": "", "icy_name": _fix_mojibake(icy_name)}
 
             loop = asyncio.get_running_loop()
             deadline = loop.time() + _ICY_LISTEN_SECONDS
@@ -226,10 +267,7 @@ async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict
                 if not meta_len:
                     continue
                 meta_bytes = await resp.content.readexactly(meta_len)
-                try:
-                    raw = meta_bytes.decode("utf-8").rstrip("\x00")
-                except UnicodeDecodeError:
-                    raw = meta_bytes.decode("latin-1").rstrip("\x00")
+                raw = _decode_icy_bytes(meta_bytes).rstrip("\x00")
                 # Non-greedy up to the "';" terminator, not "[^']*" — a title
                 # containing its own apostrophe (e.g. "What's Your Name")
                 # would otherwise truncate at that inner apostrophe.
@@ -237,7 +275,7 @@ async def async_fetch_icy_meta(session: aiohttp.ClientSession, url: str) -> dict
                 if m:
                     stream_title = m.group(1).strip()
 
-            return {"stream_title": stream_title, "icy_name": icy_name}
+            return {"stream_title": _fix_mojibake(stream_title), "icy_name": _fix_mojibake(icy_name)}
 
     except Exception as err:
         _LOGGER.debug("ICY fetch failed for %s: %s", url, err)

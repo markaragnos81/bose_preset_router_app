@@ -331,7 +331,17 @@ def _pick_itunes_artwork(results: list[dict[str, object]], *, artist: str, title
     for result in results:
         candidate_title = _normalize_track_value(str(result.get("trackName") or ""))
         candidate_artist = _normalize_track_value(str(result.get("artistName") or ""))
-        if candidate_title != expected_title:
+        # Radio ICY tags frequently truncate/abbreviate the title (confirmed
+        # live: "Join Me" for HIM's actual "Join Me In Death") - an exact
+        # match would miss the real result iTunes has, so also accept a
+        # prefix match either direction, gated behind >=4 chars to avoid
+        # loose matches on very short titles.
+        titles_match = candidate_title == expected_title or (
+            len(expected_title) >= 4
+            and len(candidate_title) >= 4
+            and (candidate_title.startswith(expected_title) or expected_title.startswith(candidate_title))
+        )
+        if not titles_match:
             continue
         if expected_artist and candidate_artist and candidate_artist != expected_artist:
             continue

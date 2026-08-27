@@ -124,12 +124,30 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
     def _has_real_track(self) -> bool:
         return self._stream_meta.get("title_classification") == "track"
 
+    def _fallback_station_name(self) -> str | None:
+        """Best-known station/preset name for the non-track (ad/news/no
+        data yet) case. Bose's own now_playing.station_name and the App's
+        resolved stream_meta.station_name can both be genuinely empty (e.g.
+        the App just restarted, or a lookup failed outright) - when that
+        happens fall back to the currently active preset's own stored name,
+        which is always known locally and never requires a network call.
+        Keeps the card from ever going fully blank during an ad break.
+        """
+        now_playing = self._data.get("now_playing", {})
+        preset = self._matched_preset()
+        return (
+            now_playing.get("station_name")
+            or now_playing.get("item_name")
+            or self._stream_meta.get("station_name")
+            or (preset.get("item_name") if preset else None)
+            or None
+        )
+
     @property
     def media_title(self) -> str | None:
         if self._has_real_track:
             return self._stream_meta.get("track_title") or None
-        now_playing = self._data.get("now_playing", {})
-        return now_playing.get("station_name") or now_playing.get("item_name") or None
+        return self._fallback_station_name()
 
     @property
     def media_artist(self) -> str | None:
@@ -139,8 +157,7 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
     def media_album_name(self) -> str | None:
         if self._has_real_track:
             return None
-        now_playing = self._data.get("now_playing", {})
-        return now_playing.get("station_name") or None
+        return self._fallback_station_name()
 
     @property
     def media_image_url(self) -> str | None:

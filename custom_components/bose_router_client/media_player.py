@@ -147,7 +147,14 @@ class BoseRouterMediaPlayer(CoordinatorEntity[BoseRouterDeviceCoordinator], Medi
     def media_title(self) -> str | None:
         if self._has_real_track:
             return self._stream_meta.get("track_title") or None
-        return self._fallback_station_name()
+        # Deliberately None (not the station-name fallback) here: bubble-card
+        # renders its own native secondary-info line from media_title, and
+        # the dashboard's custom styles script already shows the same
+        # fallback name via media_album_name on a separate line - returning
+        # it from both produced a visibly duplicated "STATION - STATION"
+        # display during every ad break (confirmed live), which read as
+        # broken even though it was working as designed.
+        return None
 
     @property
     def media_artist(self) -> str | None:

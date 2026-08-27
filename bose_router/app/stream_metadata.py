@@ -114,6 +114,17 @@ class StreamMetadataTracker:
                 continue
             if url != self._stream_url or meta == self._current_meta:
                 continue
+            if (
+                meta.get("title_decision_reason") == "no_stream_title"
+                and self._current_meta.get("title_classification") == "track"
+            ):
+                # ICY only resends metadata when the title changes - an empty
+                # stream_title here means this poll's listen window just
+                # didn't happen to catch that event, not that the song
+                # ended. The same track is almost certainly still playing,
+                # so keep showing it instead of flickering to the station
+                # name until a later poll catches the real change.
+                continue
             self._current_meta = meta
             await self._update_callback(dict(meta))
 

@@ -22,8 +22,32 @@ from station_meta import async_resolve_station_meta
 from stream_metadata import StreamMetadataRegistry
 from zeroconf_advertise import ZeroconfAdvertiser
 
-APP_VERSION = "0.11.0"
+APP_VERSION = "0.11.1"
 OPTIONS_PATH = Path("/data/options.json")
+SERVER_ID_PATH = Path("/data/server_id.txt")
+
+
+def _load_or_create_server_id() -> str:
+    """A stable identity for this App instance's Zeroconf advertisement,
+    persisted across restarts instead of derived from the device list.
+
+    Previously this was uuid5-derived from the sorted enabled-device IPs,
+    which meant it changed every time a device was added, removed, or
+    toggled - the HA-side config_flow keys its config entry's unique_id to
+    server_id, so a changed value looked like a brand new App to Home
+    Assistant and created a second, orphaned config entry alongside the
+    existing one (confirmed live, twice, in production use). Persisting a
+    random id once and reusing it forever removes the recurring cause
+    entirely instead of requiring a manual cleanup after every device-list
+    change.
+    """
+    if SERVER_ID_PATH.exists():
+        existing = SERVER_ID_PATH.read_text().strip()
+        if existing:
+            return existing
+    new_id = f"bose-router-{uuid.uuid4().hex[:8]}"
+    SERVER_ID_PATH.write_text(new_id)
+    return new_id
 
 
 def _load_options() -> dict:
@@ -136,8 +160,7 @@ async def async_main() -> None:
     if not devices:
         raise SystemExit("At least one device is required (options.devices: [{name, ip}, ...])")
 
-    server_id_seed = ",".join(sorted(d["ip"] for d in devices))
-    server_id = f"bose-router-{uuid.uuid5(uuid.NAMESPACE_DNS, server_id_seed).hex[:8]}"
+    server_id = _load_or_create_server_id()
 
     airplay_discovery = AirPlayDiscovery()
     await airplay_discovery.async_start()

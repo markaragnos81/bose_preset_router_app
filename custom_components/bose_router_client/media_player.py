@@ -19,18 +19,18 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DATA_COORDINATORS, DATA_WS_CLIENT, DOMAIN
+from .const import DATA_CLIENTS, DATA_COORDINATORS, DOMAIN
 from .coordinator import BoseRouterDeviceCoordinator
 from .ws_client import BoseRouterAppClient
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
     entry_data = hass.data[DOMAIN][entry.entry_id]
-    client: BoseRouterAppClient = entry_data[DATA_WS_CLIENT]
+    clients: dict[str, BoseRouterAppClient] = entry_data[DATA_CLIENTS]
     coordinators: dict[str, BoseRouterDeviceCoordinator] = entry_data[DATA_COORDINATORS]
 
     entities = {
-        ip: BoseRouterMediaPlayer(coordinator, client=client)
+        ip: BoseRouterMediaPlayer(coordinator, client=clients[ip])
         for ip, coordinator in coordinators.items()
     }
     # Each entity needs to resolve OTHER devices' zone membership (Bose deviceID

@@ -19,10 +19,10 @@ from bose_client import BoseSoundTouchClient
 from bose_notify import BoseNotificationListener
 from server import BoseRouterServer
 from station_meta import async_resolve_station_meta
-from stream_metadata import StreamMetadataTracker
+from stream_metadata import StreamMetadataRegistry
 from zeroconf_advertise import ZeroconfAdvertiser
 
-APP_VERSION = "0.10.3"
+APP_VERSION = "0.11.0"
 OPTIONS_PATH = Path("/data/options.json")
 
 
@@ -55,13 +55,6 @@ logging.basicConfig(level=_LOG_LEVEL, format="%(asctime)s %(levelname)s %(name)s
 # quiet even when the app's own log_level is set to debug.
 logging.getLogger("websockets").setLevel(max(_LOG_LEVEL, logging.WARNING))
 _LOGGER = logging.getLogger(__name__)
-
-
-async def _noop_update_callback(meta: dict) -> None:
-    """StreamMetadataTracker refreshes current_meta internally either way;
-    clients poll it on demand via the "stream_meta" command rather than this
-    app pushing updates — no server-push/event protocol yet.
-    """
 
 
 def _resolve_device_presets(
@@ -169,15 +162,16 @@ async def async_main() -> None:
 
         acoustid_fallback = _acoustid_identify if acoustid_api_key else None
 
-        stream_meta_trackers = {
-            device["ip"]: StreamMetadataTracker(
-                session,
-                station_meta_resolver=_resolve,
-                update_callback=_noop_update_callback,
-                acoustid_resolver=acoustid_fallback,
-            )
-            for device in devices
-        }
+        # One registry shared by all devices, not one tracker per device: two
+        # or more speakers commonly end up on the same station, and without
+        # sharing, each would open its own redundant ICY listening
+        # connection to the same relay and could show slightly different
+        # (poll-cycle-drifted) track info for the identical stream.
+        stream_meta_registry = StreamMetadataRegistry(
+            session,
+            station_meta_resolver=_resolve,
+            acoustid_resolver=acoustid_fallback,
+        )
         for ip, client in clients.items():
             _LOGGER.info("Configured device: %s (%s)", client.device_name or "?", ip)
 
@@ -185,7 +179,7 @@ async def async_main() -> None:
             clients=clients,
             airplay_players=airplay_players,
             resume_store=resume_store,
-            stream_meta_trackers=stream_meta_trackers,
+            stream_meta_registry=stream_meta_registry,
             session=session,
             acoustid_api_key=acoustid_api_key,
         )
@@ -218,8 +212,7 @@ async def async_main() -> None:
                 await listener.async_stop()
             for player in airplay_players.values():
                 await player.stop()
-            for tracker in stream_meta_trackers.values():
-                await tracker.async_clear()
+            await stream_meta_registry.async_clear_all()
             await airplay_discovery.async_stop()
 
 

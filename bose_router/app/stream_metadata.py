@@ -185,6 +185,86 @@ class StreamMetadataTracker:
         }
 
 
+class StreamMetadataRegistry:
+    """Shares one StreamMetadataTracker per distinct stream URL across every
+    device currently tuned to it, instead of one tracker per device.
+
+    With multiple speakers it's common for two or more to play the same
+    station at once - without this, each device independently opened its
+    own ICY listening connection to the same relay and repeated the same
+    station/track lookups, and their displayed track info could drift out
+    of sync by up to one poll cycle. Ref-counted so a tracker is only torn
+    down once the last device using its URL switches away or stops.
+    """
+
+    def __init__(
+        self,
+        session: aiohttp.ClientSession,
+        *,
+        station_meta_resolver: Callable[[str], Awaitable[dict[str, str]]],
+        acoustid_resolver: Callable[[str], Awaitable[dict[str, Any]]] | None = None,
+    ) -> None:
+        self._session = session
+        self._station_meta_resolver = station_meta_resolver
+        self._acoustid_resolver = acoustid_resolver
+        self._trackers: dict[str, StreamMetadataTracker] = {}
+        self._refcounts: dict[str, int] = {}
+        self._device_url: dict[str, str] = {}
+
+    def get_meta(self, device_ip: str) -> dict[str, Any]:
+        url = self._device_url.get(device_ip)
+        tracker = self._trackers.get(url) if url else None
+        return tracker.current_meta if tracker is not None else {}
+
+    async def async_set_stream(self, device_ip: str, url: str) -> None:
+        url = str(url or "").strip()
+        old_url = self._device_url.get(device_ip)
+        if old_url == url:
+            return
+        if not url:
+            await self.async_clear(device_ip)
+            return
+        if old_url:
+            await self._release(old_url)
+
+        self._device_url[device_ip] = url
+        self._refcounts[url] = self._refcounts.get(url, 0) + 1
+        tracker = self._trackers.get(url)
+        if tracker is None:
+            tracker = StreamMetadataTracker(
+                self._session,
+                station_meta_resolver=self._station_meta_resolver,
+                update_callback=_noop_update_callback,
+                acoustid_resolver=self._acoustid_resolver,
+            )
+            self._trackers[url] = tracker
+        await tracker.async_set_stream(url)
+
+    async def async_clear(self, device_ip: str) -> None:
+        old_url = self._device_url.pop(device_ip, None)
+        if old_url:
+            await self._release(old_url)
+
+    async def async_clear_all(self) -> None:
+        for device_ip in list(self._device_url):
+            await self.async_clear(device_ip)
+
+    async def _release(self, url: str) -> None:
+        remaining = self._refcounts.get(url, 1) - 1
+        if remaining > 0:
+            self._refcounts[url] = remaining
+            return
+        self._refcounts.pop(url, None)
+        tracker = self._trackers.pop(url, None)
+        if tracker is not None:
+            await tracker.async_clear()
+
+
+async def _noop_update_callback(meta: dict[str, Any]) -> None:
+    """StreamMetadataRegistry callers poll current_meta on demand (stream_meta/
+    snapshot commands) rather than needing a push notification per update."""
+
+
 def _normalize_text(value: str) -> str:
     return re.sub(r"\s+", " ", re.sub(r"[!\-_.,/()'–—]", " ", value.lower())).strip()
 

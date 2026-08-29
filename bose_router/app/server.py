@@ -22,7 +22,7 @@ from websockets.server import WebSocketServerProtocol
 from acoustid_lookup import async_identify_track, chromaprint_available
 from airplay import AirPlayPlayer, AirPlayResumeStore
 from bose_client import BoseSoundTouchClient
-from stream_metadata import StreamMetadataTracker
+from stream_metadata import StreamMetadataRegistry
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,14 +56,14 @@ class BoseRouterServer:
         clients: dict[str, BoseSoundTouchClient],
         airplay_players: dict[str, AirPlayPlayer] | None = None,
         resume_store: AirPlayResumeStore | None = None,
-        stream_meta_trackers: dict[str, StreamMetadataTracker] | None = None,
+        stream_meta_registry: StreamMetadataRegistry | None = None,
         session: aiohttp.ClientSession | None = None,
         acoustid_api_key: str = "",
     ) -> None:
         self._clients = clients
         self._airplay_players = airplay_players or {}
         self._resume_store = resume_store
-        self._stream_meta_trackers = stream_meta_trackers or {}
+        self._stream_meta_registry = stream_meta_registry
         self._session = session
         self._acoustid_api_key = acoustid_api_key
 
@@ -122,28 +122,30 @@ class BoseRouterServer:
             return await self._dispatch_airplay(device_ip, command, args)
 
         if command == "stream_meta":
-            tracker = self._stream_meta_trackers.get(device_ip)
-            return tracker.current_meta if tracker is not None else {}
+            registry = self._stream_meta_registry
+            return registry.get_meta(device_ip) if registry is not None else {}
 
         if command == "snapshot":
             snapshot = await client.async_fetch_snapshot()
-            tracker = self._stream_meta_trackers.get(device_ip)
+            registry = self._stream_meta_registry
             player = self._airplay_players.get(device_ip)
             is_airplay_playing = player.is_playing if player is not None else False
 
-            if tracker is not None and not is_airplay_playing:
-                # Not our own AirPlay session (that already feeds the tracker
+            if registry is not None and not is_airplay_playing:
+                # Not our own AirPlay session (that already feeds the registry
                 # explicitly via play_stream) — pick up whatever URL the native
                 # SoundTouch preset/source is actually playing, same source
                 # production's coordinator polls (now_playing.location), so
                 # track/cover metadata works no matter how playback started.
+                # Devices sharing a URL (e.g. two speakers on the same
+                # station) share one tracker via the registry's ref-counting.
                 location = str(snapshot.get("now_playing", {}).get("location") or "")
-                if location and location != tracker.current_meta.get("stream_url"):
-                    await tracker.async_set_stream(location)
+                if location and location != registry.get_meta(device_ip).get("stream_url"):
+                    await registry.async_set_stream(device_ip, location)
                 elif not location:
-                    await tracker.async_clear()
+                    await registry.async_clear(device_ip)
 
-            snapshot["stream_meta"] = tracker.current_meta if tracker is not None else {}
+            snapshot["stream_meta"] = registry.get_meta(device_ip) if registry is not None else {}
             resume_preset_id = self._resume_store.get(device_ip) if self._resume_store is not None else None
             snapshot["airplay"] = {
                 "is_playing": is_airplay_playing,
@@ -152,8 +154,8 @@ class BoseRouterServer:
             return snapshot
 
         if command == "identify_track":
-            tracker = self._stream_meta_trackers.get(device_ip)
-            stream_url = tracker.current_meta.get("stream_url") if tracker is not None else ""
+            registry = self._stream_meta_registry
+            stream_url = registry.get_meta(device_ip).get("stream_url") if registry is not None else ""
             if not stream_url:
                 raise ValueError("no_active_stream")
             if self._session is None:
@@ -322,9 +324,8 @@ class BoseRouterServer:
             await player.stop()
             if self._resume_store is not None:
                 await self._resume_store.async_clear(device_ip)
-            tracker = self._stream_meta_trackers.get(device_ip)
-            if tracker is not None:
-                await tracker.async_clear()
+            if self._stream_meta_registry is not None:
+                await self._stream_meta_registry.async_clear(device_ip)
             return None
 
         if command == "play_stream":
@@ -339,9 +340,8 @@ class BoseRouterServer:
             if started:
                 if self._resume_store is not None and "preset_id" in args:
                     await self._resume_store.async_set(device_ip, int(args["preset_id"]))
-                tracker = self._stream_meta_trackers.get(device_ip)
-                if tracker is not None:
-                    await tracker.async_set_stream(url)
+                if self._stream_meta_registry is not None:
+                    await self._stream_meta_registry.async_set_stream(device_ip, url)
             return {"started": started}
 
         raise ValueError(f"unknown_command: {command}")
